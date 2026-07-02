@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from typing import Callable
 
-from .agent import AdaptiveAgent, Agent
+from .agent import Agent
 from .bus import EventBus
 from .devices.base import DeviceAdapter
 from .models import ActionKind, Event, Reading, RobotState, Trajectory
 from .safety import SafetyPolicy
+from .self_evolving import SelfEvolvingAgent
+from .reflection import EnvironmentFeedback
+
+FeedbackProvider = Callable[[Trajectory, RobotState], EnvironmentFeedback]
 
 
 class GuidebotHub:
@@ -18,11 +23,13 @@ class GuidebotHub:
         agent: Agent | None = None,
         safety: SafetyPolicy | None = None,
         bus: EventBus | None = None,
+        feedback_provider: FeedbackProvider | None = None,
     ) -> None:
         self.device = device
-        self.agent = agent or AdaptiveAgent()
+        self.agent = agent or SelfEvolvingAgent()
         self.safety = safety or SafetyPolicy()
         self.bus = bus or EventBus()
+        self.feedback_provider = feedback_provider
         self.state = RobotState()
         self.trajectories: list[Trajectory] = []
 
@@ -75,4 +82,10 @@ class GuidebotHub:
 
         trajectory = Trajectory(event, decision, tuple(accepted), tuple(rejected))
         self.trajectories.append(trajectory)
+        outcome_learner = getattr(self.agent, "observe_outcome", None)
+        if outcome_learner is not None:
+            feedback = (
+                self.feedback_provider(trajectory, self.state) if self.feedback_provider else None
+            )
+            outcome_learner(trajectory, self.state, feedback)
         return trajectory
