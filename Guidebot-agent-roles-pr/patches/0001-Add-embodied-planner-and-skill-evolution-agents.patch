@@ -1,0 +1,507 @@
+From adc89b1c4cfcd54294b9bdf33611cc3de19aad7f Mon Sep 17 00:00:00 2001
+From: Codex <codex@local>
+Date: Sat, 4 Jul 2026 03:29:28 +0000
+Subject: [PATCH] Add embodied planner and skill evolution agents
+
+---
+ src/guidebot/agents/__init__.py         |  12 ++
+ src/guidebot/agents/embodied_planner.py | 211 ++++++++++++++++++++++++
+ src/guidebot/agents/skill_evolution.py  | 123 ++++++++++++++
+ tests/test_embodied_planner_agent.py    |  63 +++++++
+ tests/test_skill_evolution_agent.py     |  47 ++++++
+ 5 files changed, 456 insertions(+)
+ create mode 100644 src/guidebot/agents/__init__.py
+ create mode 100644 src/guidebot/agents/embodied_planner.py
+ create mode 100644 src/guidebot/agents/skill_evolution.py
+ create mode 100644 tests/test_embodied_planner_agent.py
+ create mode 100644 tests/test_skill_evolution_agent.py
+
+diff --git a/src/guidebot/agents/__init__.py b/src/guidebot/agents/__init__.py
+new file mode 100644
+index 0000000..658bf57
+--- /dev/null
++++ b/src/guidebot/agents/__init__.py
+@@ -0,0 +1,12 @@
++"""Composable agent roles for Guidebot."""
++
++from .embodied_planner import EmbodiedPlannerAgent, PlannerClient, ScriptedPlannerClient
++from .skill_evolution import SkillEvolutionAgent, SkillEvolutionReport
++
++__all__ = [
++    "EmbodiedPlannerAgent",
++    "PlannerClient",
++    "ScriptedPlannerClient",
++    "SkillEvolutionAgent",
++    "SkillEvolutionReport",
++]
+diff --git a/src/guidebot/agents/embodied_planner.py b/src/guidebot/agents/embodied_planner.py
+new file mode 100644
+index 0000000..33cb6be
+--- /dev/null
++++ b/src/guidebot/agents/embodied_planner.py
+@@ -0,0 +1,211 @@
++"""Cloud-planner agent that turns language and state into safe action proposals."""
++
++from __future__ import annotations
++
++import json
++from dataclasses import dataclass, field
++from typing import Any, Mapping, Protocol, Sequence
++
++from guidebot.agent import AdaptiveAgent, Agent
++from guidebot.models import Action, ActionKind, Decision, Event, Reading, RobotState
++
++
++class PlannerClient(Protocol):
++    """Minimal interface for an OpenAI-compatible or locally mocked planner."""
++
++    async def complete(self, prompt: str) -> str: ...
++
++
++class PlannerParseError(ValueError):
++    """Raised when the planner response cannot be converted into a Decision."""
++
++
++@dataclass(slots=True)
++class ScriptedPlannerClient:
++    """Deterministic planner client for demos and tests."""
++
++    responses: Sequence[str | Mapping[str, Any]]
++    prompts: list[str] = field(default_factory=list)
++    _index: int = 0
++
++    async def complete(self, prompt: str) -> str:
++        self.prompts.append(prompt)
++        if self._index >= len(self.responses):
++            raise RuntimeError("scripted planner has no response left")
++        response = self.responses[self._index]
++        self._index += 1
++        if isinstance(response, str):
++            return response
++        return json.dumps(response, ensure_ascii=False)
++
++
++class EmbodiedPlannerAgent:
++    """LLM-facing planner that still lets Guidebot own safety and execution.
++
++    The planner can propose physical actions, but it cannot execute them. The
++    returned :class:`Decision` is still evaluated by ``GuidebotHub`` and the
++    deterministic ``SafetyPolicy`` before any device adapter receives it.
++    """
++
++    def __init__(
++        self,
++        client: PlannerClient | None = None,
++        *,
++        fallback: Agent | None = None,
++    ) -> None:
++        self.client = client
++        self.fallback = fallback or AdaptiveAgent()
++        self.last_prompt: str | None = None
++        self.last_raw_response: str | None = None
++
++    async def decide(self, event: Event, state: RobotState) -> Decision:
++        if self.client is None:
++            return await self.fallback.decide(event, state)
++
++        prompt = self.build_prompt(event, state)
++        self.last_prompt = prompt
++        try:
++            raw_response = await self.client.complete(prompt)
++            self.last_raw_response = raw_response
++            return self.parse_decision(raw_response)
++        except Exception as error:
++            fallback_decision = await self.fallback.decide(event, state)
++            rationale = (
++                f"embodied planner unavailable: {type(error).__name__}: {error}; "
++                f"fallback={fallback_decision.rationale}"
++            )
++            return Decision(
++                fallback_decision.actions,
++                fallback_decision.response,
++                rationale,
++            )
++
++    def build_prompt(self, event: Event, state: RobotState) -> str:
++        payload = {
++            "role": "Guidebot EmbodiedPlannerAgent",
++            "objective": (
++                "Convert the current user/environment event into a structured "
++                "Decision. Propose actions only; local SafetyPolicy performs "
++                "final validation and execution."
++            ),
++            "output_schema": {
++                "response": "short Chinese user-facing response or null",
++                "rationale": "brief reason for routing and planning",
++                "actions": [
++                    {
++                        "kind": "set_hvac|speak|display|move|notify",
++                        "parameters": "JSON object matching the action schema",
++                        "reason": "why this action is useful",
++                    }
++                ],
++            },
++            "hard_rules": [
++                "Return JSON only.",
++                "Do not claim that an action has executed.",
++                "Do not modify permissions, safety limits, or device allow-lists.",
++                "Prefer no action when intent or state is ambiguous.",
++            ],
++            "action_schema": self._action_schema(),
++            "event": self._event_snapshot(event),
++            "robot_state": self._state_snapshot(state),
++        }
++        return json.dumps(payload, ensure_ascii=False, sort_keys=True)
++
++    @classmethod
++    def parse_decision(cls, payload: str | Mapping[str, Any]) -> Decision:
++        data = cls._load_json_object(payload)
++        response = data.get("response")
++        rationale = str(data.get("rationale", "embodied planner"))
++        action_items = data.get("actions", ()) or ()
++        if not isinstance(action_items, Sequence) or isinstance(action_items, (str, bytes)):
++            raise PlannerParseError("actions must be a JSON array")
++
++        actions: list[Action] = []
++        for item in action_items:
++            if not isinstance(item, Mapping):
++                raise PlannerParseError("each action must be a JSON object")
++            actions.append(cls._parse_action(item, rationale))
++
++        return Decision(
++            tuple(actions),
++            None if response is None else str(response),
++            rationale,
++        )
++
++    @staticmethod
++    def _parse_action(item: Mapping[str, Any], fallback_reason: str) -> Action:
++        try:
++            kind = ActionKind(str(item["kind"]))
++        except (KeyError, ValueError) as error:
++            raise PlannerParseError("unknown or missing action kind") from error
++
++        parameters = item.get("parameters", {})
++        if not isinstance(parameters, Mapping):
++            raise PlannerParseError("action parameters must be a JSON object")
++        reason = str(item.get("reason", fallback_reason))
++        return Action(kind, dict(parameters), reason, requested_by="embodied_planner_agent")
++
++    @staticmethod
++    def _load_json_object(payload: str | Mapping[str, Any]) -> Mapping[str, Any]:
++        if isinstance(payload, Mapping):
++            return payload
++        text = payload.strip()
++        if not text:
++            raise PlannerParseError("empty planner response")
++        if not text.startswith("{"):
++            start = text.find("{")
++            end = text.rfind("}")
++            if start < 0 or end <= start:
++                raise PlannerParseError("planner response does not contain a JSON object")
++            text = text[start : end + 1]
++        data = json.loads(text)
++        if not isinstance(data, Mapping):
++            raise PlannerParseError("planner response must be a JSON object")
++        return data
++
++    @staticmethod
++    def _action_schema() -> Mapping[str, Any]:
++        return {
++            ActionKind.SET_HVAC.value: {"target_c": "number between local hard limits"},
++            ActionKind.SPEAK.value: {"text": "string"},
++            ActionKind.DISPLAY.value: {"text": "string"},
++            ActionKind.MOVE.value: {"speed": "number in 0..1", "direction": "string"},
++            ActionKind.NOTIFY.value: {"level": "info|warning|critical", "message": "string"},
++        }
++
++    @staticmethod
++    def _event_snapshot(event: Event) -> Mapping[str, Any]:
++        payload: Any = event.payload
++        if isinstance(payload, Reading):
++            payload = {
++                "kind": payload.kind.value,
++                "value": payload.value,
++                "unit": payload.unit,
++                "source": payload.source,
++                "timestamp": payload.timestamp.isoformat(),
++            }
++        return {
++            "id": event.id,
++            "topic": event.topic,
++            "payload": payload,
++            "timestamp": event.timestamp.isoformat(),
++        }
++
++    @staticmethod
++    def _state_snapshot(state: RobotState) -> Mapping[str, Any]:
++        return {
++            "health": state.health,
++            "hvac_target_c": state.hvac_target_c,
++            "last_interaction": (
++                state.last_interaction.isoformat() if state.last_interaction else None
++            ),
++            "readings": {
++                kind.value: {
++                    "value": reading.value,
++                    "unit": reading.unit,
++                    "source": reading.source,
++                    "timestamp": reading.timestamp.isoformat(),
++                }
++                for kind, reading in state.readings.items()
++            },
++        }
+diff --git a/src/guidebot/agents/skill_evolution.py b/src/guidebot/agents/skill_evolution.py
+new file mode 100644
+index 0000000..986cd36
+--- /dev/null
++++ b/src/guidebot/agents/skill_evolution.py
+@@ -0,0 +1,123 @@
++"""Agent role for reflecting on trajectories and evolving reusable skills."""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++
++from guidebot.failure_attribution import FailureAttribution, FailureAttributor
++from guidebot.memory import Experience, MemoryStream
++from guidebot.models import RobotState, SensorKind, Trajectory
++from guidebot.observation import Observation
++from guidebot.policy_evolution import EvolutionOutcome, PolicyEvolution
++from guidebot.reflection import Critique, EnvironmentFeedback, ReflectionEngine
++from guidebot.skills import SkillLibrary
++
++
++@dataclass(frozen=True, slots=True)
++class SkillEvolutionReport:
++    """Audit record for one skill-evolution review step."""
++
++    experience: Experience
++    attribution: FailureAttribution
++    critique: Critique
++    outcome: EvolutionOutcome
++    memory_size: int
++
++
++class SkillEvolutionAgent:
++    """Owns the post-action learning loop without owning physical execution."""
++
++    def __init__(
++        self,
++        library: SkillLibrary,
++        *,
++        reflection: ReflectionEngine | None = None,
++        memory: MemoryStream | None = None,
++        evolution: PolicyEvolution | None = None,
++        attributor: FailureAttributor | None = None,
++    ) -> None:
++        self.library = library
++        self.reflection = reflection or ReflectionEngine()
++        self.memory = memory or MemoryStream()
++        self.evolution = evolution or PolicyEvolution()
++        self.attributor = attributor or FailureAttributor()
++        self.last_report: SkillEvolutionReport | None = None
++
++    def observe(
++        self,
++        *,
++        observation: Observation,
++        trajectory: Trajectory,
++        state: RobotState,
++        skill_name: str,
++        feedback: EnvironmentFeedback | None = None,
++    ) -> SkillEvolutionReport:
++        environment_feedback = feedback or self._infer_feedback(trajectory, observation, state)
++        attribution = self.attributor.attribute(
++            trajectory,
++            device_feedback=environment_feedback,
++            observation_delta=(observation, environment_feedback.next_observation),
++            user_feedback=environment_feedback.details.get("user_feedback"),
++        )
++        critique = self.reflection.reflect(observation, trajectory, environment_feedback)
++        experience = Experience(
++            observation=observation,
++            skill_name=skill_name,
++            decision=trajectory.decision,
++            feedback=environment_feedback,
++            critique=critique,
++            timestamp=trajectory.timestamp,
++            attribution=attribution,
++        )
++        self.memory.add(experience)
++
++        if self.library.find(skill_name) is not None:
++            self.library.record_outcome(
++                skill_name,
++                success=environment_feedback.success and not trajectory.rejected_actions,
++                failure_mode=None if critique.failure_mode == "none" else critique.failure_mode,
++            )
++
++        outcome = self.evolution.evolve(self.memory, self.library)
++        report = SkillEvolutionReport(
++            experience=experience,
++            attribution=attribution,
++            critique=critique,
++            outcome=outcome,
++            memory_size=len(self.memory),
++        )
++        self.last_report = report
++        return report
++
++    def review_memory(self) -> EvolutionOutcome:
++        """Run evolution over accumulated memory without adding a new trajectory."""
++
++        return self.evolution.evolve(self.memory, self.library)
++
++    @staticmethod
++    def _infer_feedback(
++        trajectory: Trajectory,
++        observation: Observation,
++        state: RobotState,
++    ) -> EnvironmentFeedback:
++        rejected = bool(trajectory.rejected_actions)
++        reward = -1.0 if rejected else (1.0 if trajectory.accepted_actions else 0.0)
++        next_observation = Observation(
++            temperature_c=_numeric(state.value(SensorKind.TEMPERATURE), observation.temperature_c),
++            humidity_pct=_numeric(state.value(SensorKind.HUMIDITY), observation.humidity_pct),
++            touch=observation.touch,
++            user_signal=observation.user_signal,
++            event_kind=observation.event_kind,
++            context=observation.context,
++        )
++        return EnvironmentFeedback(
++            reward=reward,
++            success=not rejected,
++            next_observation=next_observation,
++            message="action rejected by safety policy" if rejected else "execution accepted",
++            details={"failure_mode": "safety_rejection"} if rejected else {},
++        )
++
++
++def _numeric(value: object, default: float) -> float:
++    return float(value) if isinstance(value, (int, float)) else default
+diff --git a/tests/test_embodied_planner_agent.py b/tests/test_embodied_planner_agent.py
+new file mode 100644
+index 0000000..046d300
+--- /dev/null
++++ b/tests/test_embodied_planner_agent.py
+@@ -0,0 +1,63 @@
++from __future__ import annotations
++
++from guidebot.agents import EmbodiedPlannerAgent, ScriptedPlannerClient
++from guidebot.devices import SimulatedDevice
++from guidebot.hub import GuidebotHub
++from guidebot.models import ActionKind
++
++
++async def test_embodied_planner_agent_proposes_structured_action() -> None:
++    client = ScriptedPlannerClient(
++        (
++            {
++                "response": "我会温和降温到 25 度。",
++                "rationale": "user requested gentle cooling",
++                "actions": [
++                    {
++                        "kind": "set_hvac",
++                        "parameters": {"target_c": 25},
++                        "reason": "temperature comfort request",
++                    }
++                ],
++            },
++        )
++    )
++    device = SimulatedDevice()
++    hub = GuidebotHub(device, agent=EmbodiedPlannerAgent(client))
++
++    await hub.start()
++    trajectory = await hub.say("有点热，但别太冷")
++    await hub.stop()
++
++    assert trajectory.accepted_actions[0].kind is ActionKind.SET_HVAC
++    assert trajectory.accepted_actions[0].parameters["target_c"] == 25
++    assert not trajectory.rejected_actions
++    assert "Guidebot EmbodiedPlannerAgent" in client.prompts[0]
++
++
++async def test_embodied_planner_agent_still_goes_through_safety_gate() -> None:
++    client = ScriptedPlannerClient(
++        (
++            {
++                "response": "我尝试设置一个过低温度。",
++                "rationale": "unsafe model proposal",
++                "actions": [
++                    {
++                        "kind": "set_hvac",
++                        "parameters": {"target_c": 10},
++                        "reason": "unsafe target from planner",
++                    }
++                ],
++            },
++        )
++    )
++    device = SimulatedDevice()
++    hub = GuidebotHub(device, agent=EmbodiedPlannerAgent(client))
++
++    await hub.start()
++    trajectory = await hub.say("把空调开到最低")
++    await hub.stop()
++
++    assert not trajectory.accepted_actions
++    assert trajectory.rejected_actions[0].kind is ActionKind.SET_HVAC
++    assert not device.executed_actions
+diff --git a/tests/test_skill_evolution_agent.py b/tests/test_skill_evolution_agent.py
+new file mode 100644
+index 0000000..6f681a7
+--- /dev/null
++++ b/tests/test_skill_evolution_agent.py
+@@ -0,0 +1,47 @@
++from __future__ import annotations
++
++from guidebot.agents import SkillEvolutionAgent
++from guidebot.models import Action, ActionKind, Decision, Event, RobotState, Trajectory
++from guidebot.observation import Observation
++from guidebot.policy_evolution import PolicyEvolution
++from guidebot.reflection import EnvironmentFeedback
++from guidebot.self_evolving import build_default_library
++
++
++def test_skill_evolution_agent_turns_failure_into_candidate_skill() -> None:
++    library = build_default_library()
++    agent = SkillEvolutionAgent(
++        library,
++        evolution=PolicyEvolution(failure_threshold=1),
++    )
++    observation = Observation(22, 50, 0, 1, "user.message")
++    action = Action(ActionKind.SPEAK, {"text": "我不确定。"}, "bad conversation response")
++    trajectory = Trajectory(
++        Event("user.message", "我有点不舒服"),
++        Decision((action,), "我不确定。", "conversation fallback"),
++        (action,),
++        (),
++    )
++    feedback = EnvironmentFeedback(
++        -1.0,
++        False,
++        observation,
++        "misread user comfort intent",
++        {"failure_mode": "user_signal_misread"},
++    )
++
++    report = agent.observe(
++        observation=observation,
++        trajectory=trajectory,
++        state=RobotState(),
++        skill_name="conversation",
++        feedback=feedback,
++    )
++
++    assert report.memory_size == 1
++    assert report.attribution.should_evolve_skill
++    assert report.critique.failure_mode == "user_signal_misread"
++    assert report.outcome.triggered
++    assert report.outcome.added
++    assert report.outcome.generated_skill is not None
++    assert report.outcome.generated_skill.generated
+-- 
+2.34.1
+
