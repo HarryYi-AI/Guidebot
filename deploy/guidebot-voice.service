@@ -1,0 +1,18 @@
+[Unit]
+Description=Guidebot Qwen realtime voice
+After=network-online.target sound.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/Guidebot
+EnvironmentFile=/etc/guidebot/voice.env
+ExecStart=/home/pi/Guidebot/.venv/bin/guidebot voice-qwen --voice Tina
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

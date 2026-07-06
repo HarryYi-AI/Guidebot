@@ -28,8 +28,21 @@ pip install -e '.[dev]'
 guidebot demo
 guidebot simulate
 guidebot evolve --dry-run
+guidebot voice-demo
 pytest
 ```
+
+树莓派接入阿里云 Qwen3.5 Omni Realtime：
+
+```bash
+sudo apt install -y alsa-utils
+pip install -e '.[voice-qwen]'
+export DASHSCOPE_API_KEY='替换为新生成的密钥'
+guidebot voice-qwen --voice Tina
+```
+
+密钥只从环境变量读取，不要写入仓库。可用 `--input-device`、`--output-device` 指定 ALSA
+设备；不需要联网搜索时加 `--no-search`。
 
 不安装项目也可直接演示：
 
@@ -39,6 +52,17 @@ PYTHONPATH=src python -m guidebot.cli demo
 
 详细设计见 [docs/architecture.md](docs/architecture.md) 和
 [docs/self-evolution.md](docs/self-evolution.md)。
+语音子系统设计与小车部署说明见 [docs/voice.md](docs/voice.md)。
+原厂 `09.AI_Big_Model`、`10.Basic_voice_control` 与控制模块的兼容性审计见
+[docs/car-compatibility.md](docs/car-compatibility.md)。
+实时 token→TTS、原生 speech-to-speech、情感语音与上车部署方案见
+[docs/realtime-voice-deployment.md](docs/realtime-voice-deployment.md)。
+
+## Voice Module
+
+`src/guidebot/voice/` 提供独立、可整体替换的异步语音流水线：PCM 音频、VAD 轮次检测、STT、
+Guidebot 对话适配、流式 TTS、播放器和插话取消均通过轻量 Protocol 解耦。随车的 Yahboom
+离线关键词串口模块通过新 adapter 接入；原厂 `/workspace/ylj/harry_main/bot` 代码保持不变。
 
 ## Self-Evolving Core
 
@@ -59,7 +83,7 @@ Observation → Router → Skill → Safety → Device → Feedback
 场景中比较候选技能和父技能：存在任何安全违规立即拒绝，只有评测分数严格提升才能上线。
 被拒绝的候选及原因保留在 `rejected_skill_buffer`，用于后续反思而不会污染 active library。
 
-当前回归基线为 27 项 pytest 测试，覆盖旧 demo、路由与记忆公式、失败归因、技能谱系、房间
+当前回归基线为 48 项 pytest 测试，覆盖旧 demo、路由与记忆公式、失败归因、技能谱系、房间
 仿真、候选拒绝/接纳和完整自进化闭环；代码同时通过 Ruff 静态检查。
 
 ## 近期路线
