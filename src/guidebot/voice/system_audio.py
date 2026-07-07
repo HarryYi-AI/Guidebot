@@ -73,10 +73,12 @@ class AplayAudioPlayer:
         self.config = config or VoiceConfig()
         self.device = device
         self._process: asyncio.subprocess.Process | None = None
+        self._lock = asyncio.Lock()
 
     async def start(self) -> None:
-        if self._process is not None:
+        if self._process is not None and self._process.returncode is None:
             return
+        self._process = None
         args = [
             "aplay",
             "-q",
@@ -94,20 +96,36 @@ class AplayAudioPlayer:
         self._process = await asyncio.create_subprocess_exec(
             *args,
             stdin=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
         )
 
     async def play(self, audio: bytes) -> None:
-        await self.start()
-        process = self._process
-        if process is None or process.stdin is None:
-            raise RuntimeError("aplay process has no stdin")
-        process.stdin.write(audio)
-        await process.stdin.drain()
+        async with self._lock:
+            await self.start()
+            process = self._process
+            if process is None or process.stdin is None:
+                return
+            try:
+                process.stdin.write(audio)
+                await process.stdin.drain()
+            except (BrokenPipeError, ConnectionResetError):
+                await self._discard_process()
 
     async def stop(self) -> None:
-        if self._process is not None and self._process.returncode is None:
-            self._process.terminate()
-            await self._process.wait()
-        self._process = None
+        async with self._lock:
+            await self._discard_process()
 
+    async def _discard_process(self) -> None:
+        process = self._process
+        self._process = None
+        if process is None:
+            return
+        if process.stdin is not None and not process.stdin.is_closing():
+            process.stdin.close()
+        if process.returncode is None:
+            process.terminate()
+            try:
+                await asyncio.wait_for(process.wait(), timeout=1.0)
+            except asyncio.TimeoutError:
+                process.kill()
+                await process.wait()

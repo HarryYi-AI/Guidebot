@@ -57,9 +57,18 @@ guidebot voice-qwen \
 ```
 
 不要把 `export` 写进 Git 管理的文件。生产环境使用权限为 `0600` 的 systemd
-`EnvironmentFile` 或云端 secret manager，并限制服务账户权限。当前 provider 默认启用联网搜索；
-若下一阶段接入小车 Function Calling，必须用 `--no-search`，再让 tool call 经过 Guidebot
-`SafetyPolicy → Device`，绝不能让模型直接写串口或发布底盘速度。
+`EnvironmentFile` 或云端 secret manager，并限制服务账户权限。当前 provider 默认使用低延迟模式，
+不启用联网搜索；需要搜索时显式加 `--search`。若下一阶段接入小车 Function Calling，仍要让
+tool call 经过 Guidebot `SafetyPolicy → Device`，绝不能让模型直接写串口或发布底盘速度。
+
+若终端出现 `å®¸è¶...` 这类中文乱码，通常是树莓派 shell/SSH 客户端没有使用 UTF-8，可先运行：
+
+```bash
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+export PYTHONUTF8=1
+guidebot voice-qwen --voice Tina
+```
 
 开机自启可使用仓库中的 `deploy/guidebot-voice.service`：
 

@@ -42,7 +42,8 @@ guidebot voice-qwen --voice Tina
 ```
 
 密钥只从环境变量读取，不要写入仓库。可用 `--input-device`、`--output-device` 指定 ALSA
-设备；不需要联网搜索时加 `--no-search`。
+设备；默认使用低延迟对话模式，不启用联网搜索。需要实时搜索时加 `--search`，但首句和每轮回复
+都会更慢。
 
 不安装项目也可直接演示：
 

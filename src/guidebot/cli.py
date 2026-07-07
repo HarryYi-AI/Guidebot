@@ -49,7 +49,7 @@ async def run_voice_qwen(args: argparse.Namespace) -> None:
     output_config = VoiceConfig(sample_rate=24_000, channels=1, sample_width_bytes=2)
     provider_config = DashScopeRealtimeConfig(
         voice=args.voice,
-        enable_search=not args.no_search,
+        enable_search=args.search and not args.no_search,
     )
     runtime = NativeVoiceRuntime(
         ArecordAudioSource(input_config, args.input_device),
@@ -94,7 +94,6 @@ def run_evolve_dry() -> None:
         f"baseline_score={report.score:.4f}; scenarios={len(report.scenarios)}"
     )
 
-
 async def run_voice_demo() -> None:
     config = VoiceConfig(
         chunk_ms=20,
@@ -134,7 +133,8 @@ def main() -> None:
     qwen.add_argument("--voice", default="Tina")
     qwen.add_argument("--input-device")
     qwen.add_argument("--output-device")
-    qwen.add_argument("--no-search", action="store_true")
+    qwen.add_argument("--search", action="store_true", help="enable web search; slower")
+    qwen.add_argument("--no-search", action="store_true", help=argparse.SUPPRESS)
     evolve = subparsers.add_parser("evolve")
     evolve.add_argument("--dry-run", action="store_true", required=True)
     args = parser.parse_args()

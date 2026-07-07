@@ -8,6 +8,8 @@ Type=simple
 User=pi
 WorkingDirectory=/home/pi/Guidebot
 EnvironmentFile=/etc/guidebot/voice.env
+Environment=PYTHONUTF8=1
+Environment=LANG=C.UTF-8
 ExecStart=/home/pi/Guidebot/.venv/bin/guidebot voice-qwen --voice Tina
 Restart=on-failure
 RestartSec=3
