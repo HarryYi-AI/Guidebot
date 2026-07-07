@@ -51,6 +51,8 @@ async def run_voice_qwen(args: argparse.Namespace) -> None:
         voice=args.voice,
         enable_search=args.search and not args.no_search,
         connect_retries=args.connect_retries,
+        turn_detection_threshold=args.vad_threshold,
+        turn_detection_silence_duration_ms=args.vad_silence_ms,
     )
     runtime = NativeVoiceRuntime(
         ArecordAudioSource(input_config, args.input_device),
@@ -137,6 +139,16 @@ def main() -> None:
     qwen.add_argument("--search", action="store_true", help="enable web search; slower")
     qwen.add_argument("--no-search", action="store_true", help=argparse.SUPPRESS)
     qwen.add_argument("--connect-retries", type=int, default=3)
+    qwen.add_argument(
+        "--vad-threshold",
+        type=float,
+        help="raise this, e.g. 0.75-0.9, if background noise triggers speech",
+    )
+    qwen.add_argument(
+        "--vad-silence-ms",
+        type=int,
+        help="silence duration before ending a turn; e.g. 700-1000",
+    )
     evolve = subparsers.add_parser("evolve")
     evolve.add_argument("--dry-run", action="store_true", required=True)
     args = parser.parse_args()

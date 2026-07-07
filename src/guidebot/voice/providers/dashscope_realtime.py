@@ -26,6 +26,8 @@ class DashScopeRealtimeConfig:
     enable_search: bool = True
     search_sources: bool = True
     turn_detection: str = "semantic_vad"
+    turn_detection_threshold: float | None = None
+    turn_detection_silence_duration_ms: int | None = None
     connect_retries: int = 3
     connect_retry_delay_seconds: float = 2.0
 
@@ -128,6 +130,12 @@ class DashScopeRealtimeSession:
             "enable_turn_detection": True,
             "turn_detection_type": self.config.turn_detection,
         }
+        if self.config.turn_detection_threshold is not None:
+            settings["turn_detection_threshold"] = self.config.turn_detection_threshold
+        if self.config.turn_detection_silence_duration_ms is not None:
+            settings["turn_detection_silence_duration_ms"] = (
+                self.config.turn_detection_silence_duration_ms
+            )
         if self.config.enable_search:
             settings.update(
                 enable_search=True,

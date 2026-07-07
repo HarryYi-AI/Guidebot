@@ -78,6 +78,30 @@ async def test_session_streams_audio_and_configures_semantic_vad(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_session_configures_vad_sensitivity(monkeypatch):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "test-only")
+    holder = {}
+
+    def factory(_model, callback, _url):
+        holder["conversation"] = FakeConversation(callback)
+        return holder["conversation"]
+
+    session = DashScopeRealtimeSession(
+        DashScopeRealtimeConfig(
+            turn_detection_threshold=0.85,
+            turn_detection_silence_duration_ms=900,
+        ),
+        conversation_factory=factory,
+    )
+    await session.connect()
+    settings = holder["conversation"].settings
+    assert settings["turn_detection_threshold"] == 0.85
+    assert settings["turn_detection_silence_duration_ms"] == 900
+    await session.close()
+    assert holder["conversation"].closed
+
+
+@pytest.mark.asyncio
 async def test_session_requires_environment_key(monkeypatch):
     monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
     session = DashScopeRealtimeSession(conversation_factory=lambda *_: None)
