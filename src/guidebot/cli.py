@@ -38,12 +38,15 @@ def _print_realtime_event(event: object) -> None:
         print("已连接 Qwen Realtime，可以开始说话（Ctrl+C 退出）")
     elif event.type in {"guidebot.session.awake", "guidebot.session.sleep"}:
         print(f"[Guidebot] {event.text}")
+    elif event.type.startswith("guidebot.command."):
+        print(f"[Guidebot] {event.text}")
 
 
 async def run_voice_qwen(args: argparse.Namespace) -> None:
     if not os.getenv("DASHSCOPE_API_KEY"):
         raise SystemExit("请先设置 DASHSCOPE_API_KEY 环境变量")
     from .voice.audio_gate import NoiseGateAudioSource
+    from .voice.commands import AlsaVolumeController, VoiceIntentRouter
     from .voice.native_runtime import NativeVoiceRuntime
     from .voice.providers import DashScopeRealtimeConfig, DashScopeRealtimeSession
     from .voice.session_control import WakeSleepController
@@ -73,12 +76,19 @@ async def run_voice_qwen(args: argparse.Namespace) -> None:
             require_wake=True,
             debug_inactive_transcripts=args.debug_inactive_transcripts,
         )
+    command_router = None
+    if not args.disable_voice_commands:
+        command_router = VoiceIntentRouter(
+            AlsaVolumeController(device=args.volume_device, mixer=args.volume_mixer),
+            volume_step=args.volume_step,
+        )
     runtime = NativeVoiceRuntime(
         source,
         AplayAudioPlayer(output_config, args.output_device),
         DashScopeRealtimeSession(provider_config),
         _print_realtime_event,
         session_controller,
+        command_router,
     )
     try:
         await runtime.run()
@@ -197,6 +207,10 @@ def main() -> None:
         default=["今天聊到这里", "结束对话", "先这样", "不用聊了", "休眠"],
     )
     qwen.add_argument("--debug-inactive-transcripts", action="store_true")
+    qwen.add_argument("--disable-voice-commands", action="store_true")
+    qwen.add_argument("--volume-device", default="default")
+    qwen.add_argument("--volume-mixer", default="Master")
+    qwen.add_argument("--volume-step", type=int, default=10)
     evolve = subparsers.add_parser("evolve")
     evolve.add_argument("--dry-run", action="store_true", required=True)
     args = parser.parse_args()

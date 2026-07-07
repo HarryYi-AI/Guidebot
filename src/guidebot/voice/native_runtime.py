@@ -7,7 +7,8 @@ from collections.abc import Callable
 
 from .interfaces import AudioPlayer, AudioSource, NativeSpeechSession
 from .providers.dashscope_realtime import RealtimeEvent
-from .session_control import WakeSleepController
+from .session_control import TRANSCRIPT_DONE, WakeSleepController
+from .commands import VoiceIntentRouter
 
 
 class NativeVoiceRuntime:
@@ -18,12 +19,14 @@ class NativeVoiceRuntime:
         session: NativeSpeechSession,
         on_event: Callable[[object], None] | None = None,
         session_controller: WakeSleepController | None = None,
+        command_router: VoiceIntentRouter | None = None,
     ) -> None:
         self.source = source
         self.player = player
         self.session = session
         self.on_event = on_event
         self.session_controller = session_controller
+        self.command_router = command_router
         self._responding = False
 
     async def run(self) -> None:
@@ -86,6 +89,27 @@ class NativeVoiceRuntime:
                         for generated_event in decision.generated_events:
                             self.on_event(generated_event)
                     if not decision.emit_event:
+                        continue
+                if (
+                    self.command_router is not None
+                    and event.type == TRANSCRIPT_DONE
+                    and (
+                        self.session_controller is None
+                        or self.session_controller.allow_playback
+                    )
+                ):
+                    result = await self.command_router.route(event.text)
+                    if result is not None:
+                        await self.player.stop()
+                        if result.should_interrupt_model and self._responding:
+                            await self.session.interrupt()
+                        if self.on_event is not None:
+                            self.on_event(
+                                RealtimeEvent(
+                                    f"guidebot.command.{result.intent}",
+                                    result.response,
+                                )
+                            )
                         continue
             if self.on_event is not None:
                 self.on_event(event)
