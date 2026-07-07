@@ -33,6 +33,19 @@ class FakeConversation:
         self.closed = True
 
 
+class FlakyConversation(FakeConversation):
+    def __init__(self, callback, failures: int):
+        super().__init__(callback)
+        self.failures = failures
+        self.connect_attempts = 0
+
+    def connect(self):
+        self.connect_attempts += 1
+        if self.connect_attempts <= self.failures:
+            raise TimeoutError("websocket connection could not established within 5s")
+        super().connect()
+
+
 @pytest.mark.asyncio
 async def test_session_streams_audio_and_configures_semantic_vad(monkeypatch):
     monkeypatch.setenv("DASHSCOPE_API_KEY", "test-only")
@@ -103,3 +116,37 @@ async def test_callback_events_cross_thread_safely(monkeypatch):
         event = await asyncio.wait_for(anext(session.receive_events()), 0.2)
     assert event.text == "你好"
     await session.close()
+
+
+@pytest.mark.asyncio
+async def test_session_retries_transient_connection_timeout(monkeypatch):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "test-only")
+    holder = {}
+
+    def factory(_model, callback, _url):
+        holder["conversation"] = FlakyConversation(callback, failures=1)
+        return holder["conversation"]
+
+    session = DashScopeRealtimeSession(
+        DashScopeRealtimeConfig(connect_retries=2, connect_retry_delay_seconds=0),
+        conversation_factory=factory,
+    )
+    await session.connect()
+    assert holder["conversation"].connect_attempts == 2
+    assert holder["conversation"].connected is True
+    await session.close()
+
+
+@pytest.mark.asyncio
+async def test_session_reports_connection_timeout_after_retries(monkeypatch):
+    monkeypatch.setenv("DASHSCOPE_API_KEY", "test-only")
+
+    session = DashScopeRealtimeSession(
+        DashScopeRealtimeConfig(connect_retries=2, connect_retry_delay_seconds=0),
+        conversation_factory=lambda _model, callback, _url: FlakyConversation(
+            callback,
+            failures=2,
+        ),
+    )
+    with pytest.raises(RuntimeError, match="after 2 attempts"):
+        await session.connect()

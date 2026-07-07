@@ -26,6 +26,8 @@ class DashScopeRealtimeConfig:
     enable_search: bool = True
     search_sources: bool = True
     turn_detection: str = "semantic_vad"
+    connect_retries: int = 3
+    connect_retry_delay_seconds: float = 2.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,8 +119,8 @@ class DashScopeRealtimeSession:
         else:
             conversation = self._factory(self.config.model, callback, self.config.url)
             audio_modality, text_modality = "audio", "text"
+        await self._connect_with_retry(conversation)
         self._conversation = conversation
-        await asyncio.to_thread(conversation.connect)
         settings: dict[str, Any] = {
             "output_modalities": [audio_modality, text_modality],
             "voice": self.config.voice,
@@ -132,6 +134,24 @@ class DashScopeRealtimeSession:
                 search_options={"enable_source": self.config.search_sources},
             )
         await asyncio.to_thread(conversation.update_session, **settings)
+
+    async def _connect_with_retry(self, conversation: Any) -> None:
+        attempts = max(1, self.config.connect_retries)
+        last_error: BaseException | None = None
+        for attempt in range(1, attempts + 1):
+            try:
+                await asyncio.to_thread(conversation.connect)
+                return
+            except Exception as exc:  # noqa: BLE001 - SDK raises provider-specific errors.
+                last_error = exc
+                if attempt >= attempts:
+                    break
+                await asyncio.sleep(self.config.connect_retry_delay_seconds)
+        raise RuntimeError(
+            "DashScope realtime websocket connection failed after "
+            f"{attempts} attempts. Please check Raspberry Pi network, DNS, firewall, "
+            "system time, and whether wss://dashscope.aliyuncs.com is reachable."
+        ) from last_error
 
     def _sdk_conversation(self, api_key: str, callback: object) -> tuple[Any, Any, Any]:
         try:

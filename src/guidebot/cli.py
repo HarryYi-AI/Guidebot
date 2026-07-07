@@ -50,6 +50,7 @@ async def run_voice_qwen(args: argparse.Namespace) -> None:
     provider_config = DashScopeRealtimeConfig(
         voice=args.voice,
         enable_search=args.search and not args.no_search,
+        connect_retries=args.connect_retries,
     )
     runtime = NativeVoiceRuntime(
         ArecordAudioSource(input_config, args.input_device),
@@ -135,6 +136,7 @@ def main() -> None:
     qwen.add_argument("--output-device")
     qwen.add_argument("--search", action="store_true", help="enable web search; slower")
     qwen.add_argument("--no-search", action="store_true", help=argparse.SUPPRESS)
+    qwen.add_argument("--connect-retries", type=int, default=3)
     evolve = subparsers.add_parser("evolve")
     evolve.add_argument("--dry-run", action="store_true", required=True)
     args = parser.parse_args()
