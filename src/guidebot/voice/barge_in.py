@@ -30,6 +30,8 @@ class BargeInPolicy:
 
     mode: BargeInMode = BargeInMode.TRANSCRIPT
     min_transcript_chars: int = 4
+    stop_playback_on_speech_start: bool = True
+    speech_start_hold_ms: int = 1_200
     interrupt_phrases: tuple[str, ...] = (
         "停",
         "停一下",
@@ -48,6 +50,22 @@ class BargeInPolicy:
             object.__setattr__(self, "mode", BargeInMode(self.mode))
         if self.min_transcript_chars < 1:
             raise ValueError("min_transcript_chars must be positive")
+        if self.speech_start_hold_ms < 0:
+            raise ValueError("speech_start_hold_ms must be non-negative")
+
+    def should_hold_playback(self, event: RealtimeEvent, *, responding: bool) -> bool:
+        """Return whether local playback should pause while speech is verified."""
+
+        if (
+            not responding
+            or self.mode is BargeInMode.OFF
+            or not self.stop_playback_on_speech_start
+        ):
+            return False
+        return event.type in {
+            "input_audio_buffer.speech_started",
+            "conversation.item.input_audio_transcription.delta",
+        }
 
     def should_interrupt(self, event: RealtimeEvent, *, responding: bool) -> bool:
         if not responding or self.mode is BargeInMode.OFF:

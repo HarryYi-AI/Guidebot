@@ -31,6 +31,7 @@ class NativeVoiceRuntime:
         self.command_router = command_router
         self.barge_in_policy = barge_in_policy or BargeInPolicy()
         self._responding = False
+        self._playback_hold_until = 0.0
 
     async def run(self) -> None:
         connect = getattr(self.session, "connect", None)
@@ -67,6 +68,8 @@ class NativeVoiceRuntime:
                 and not self.session_controller.allow_playback
             ):
                 continue
+            if asyncio.get_running_loop().time() < self._playback_hold_until:
+                continue
             await self.player.play(audio)
 
     async def _events(self) -> None:
@@ -74,13 +77,21 @@ class NativeVoiceRuntime:
             if isinstance(event, RealtimeEvent):
                 if event.type == "response.created":
                     self._responding = True
+                    self._playback_hold_until = 0.0
                 elif event.type == "response.done":
                     self._responding = False
+                    self._playback_hold_until = 0.0
+                if self.barge_in_policy.should_hold_playback(
+                    event,
+                    responding=self._responding,
+                ):
+                    await self._hold_playback()
                 if self.barge_in_policy.should_interrupt(
                     event,
                     responding=self._responding,
                 ):
                     await self.player.stop()
+                    self._playback_hold_until = float("inf")
                     await self.session.interrupt()
                 if event.type == "error":
                     raise RuntimeError(event.text or "realtime provider error")
@@ -118,3 +129,11 @@ class NativeVoiceRuntime:
                         continue
             if self.on_event is not None:
                 self.on_event(event)
+
+    async def _hold_playback(self) -> None:
+        await self.player.stop()
+        hold_seconds = self.barge_in_policy.speech_start_hold_ms / 1_000
+        self._playback_hold_until = max(
+            self._playback_hold_until,
+            asyncio.get_running_loop().time() + hold_seconds,
+        )

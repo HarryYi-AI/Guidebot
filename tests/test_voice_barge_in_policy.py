@@ -6,9 +6,20 @@ from guidebot.voice.providers import RealtimeEvent
 
 def test_transcript_barge_in_ignores_raw_speech_started() -> None:
     policy = BargeInPolicy(BargeInMode.TRANSCRIPT)
+    event = RealtimeEvent("input_audio_buffer.speech_started")
+
+    assert policy.should_hold_playback(event, responding=True) is True
+    assert policy.should_interrupt(event, responding=True) is False
+
+
+def test_transcript_barge_in_can_disable_early_stop() -> None:
+    policy = BargeInPolicy(
+        BargeInMode.TRANSCRIPT,
+        stop_playback_on_speech_start=False,
+    )
 
     assert (
-        policy.should_interrupt(
+        policy.should_hold_playback(
             RealtimeEvent("input_audio_buffer.speech_started"),
             responding=True,
         )

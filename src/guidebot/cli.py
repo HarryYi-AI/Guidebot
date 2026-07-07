@@ -93,6 +93,8 @@ async def run_voice_qwen(args: argparse.Namespace) -> None:
         BargeInPolicy(
             BargeInMode(args.barge_in_mode),
             min_transcript_chars=args.barge_in_min_chars,
+            stop_playback_on_speech_start=args.barge_in_early_stop_ms > 0,
+            speech_start_hold_ms=args.barge_in_early_stop_ms,
         ),
     )
     try:
@@ -227,6 +229,12 @@ def main() -> None:
         type=int,
         default=4,
         help="minimum transcribed characters required for transcript-mode interruption",
+    )
+    qwen.add_argument(
+        "--barge-in-early-stop-ms",
+        type=int,
+        default=1_200,
+        help="immediately stop local playback for this long after speech starts; 0 disables",
     )
     evolve = subparsers.add_parser("evolve")
     evolve.add_argument("--dry-run", action="store_true", required=True)

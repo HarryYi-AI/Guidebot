@@ -27,9 +27,10 @@ arecord (16 kHz/mono/PCM16)
  → 24 kHz/mono/PCM16 chunks → persistent aplay
 ```
 
-它会输出用户与 Guidebot 的最终转录。插话默认使用 `transcript` 策略：只有出现足够长的转写文本
-或明确的“停一下/等一下”等短指令时，才清空本地播放缓冲并取消正在生成的回复；这样比只依赖
-`speech_started` 更不容易被咳嗽、清嗓子或喇叭回声误触发。API Key 只读取
+它会输出用户与 Guidebot 的最终转录。插话默认使用两阶段 `transcript` 策略：先在
+`speech_started` 时立即停止本地喇叭，避免 Guidebot 盖住用户说话；随后只有出现足够长的转写文本
+或明确的“停一下/等一下”等短指令时，才取消正在生成的回复。这样比只依赖 `speech_started`
+取消模型更不容易被咳嗽、清嗓子或喇叭回声误触发。API Key 只读取
 `DASHSCOPE_API_KEY`；代码和命令行参数都不接收明文密钥。
 
 ### 树莓派 5 安装
@@ -74,7 +75,8 @@ guidebot voice-qwen \
   --input-gate-rms 700 \
   --input-gate-hangover-ms 250 \
   --barge-in-mode transcript \
-  --barge-in-min-chars 4
+  --barge-in-min-chars 6 \
+  --barge-in-early-stop-ms 1200
 ```
 
 如果环境很吵、咳嗽仍会误触发，可以先完全关闭播报期间插话：
