@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 
+from .barge_in import BargeInPolicy
 from .interfaces import AudioPlayer, AudioSource, NativeSpeechSession
 from .providers.dashscope_realtime import RealtimeEvent
 from .session_control import TRANSCRIPT_DONE, WakeSleepController
@@ -20,6 +21,7 @@ class NativeVoiceRuntime:
         on_event: Callable[[object], None] | None = None,
         session_controller: WakeSleepController | None = None,
         command_router: VoiceIntentRouter | None = None,
+        barge_in_policy: BargeInPolicy | None = None,
     ) -> None:
         self.source = source
         self.player = player
@@ -27,6 +29,7 @@ class NativeVoiceRuntime:
         self.on_event = on_event
         self.session_controller = session_controller
         self.command_router = command_router
+        self.barge_in_policy = barge_in_policy or BargeInPolicy()
         self._responding = False
 
     async def run(self) -> None:
@@ -73,10 +76,12 @@ class NativeVoiceRuntime:
                     self._responding = True
                 elif event.type == "response.done":
                     self._responding = False
-                if event.type == "input_audio_buffer.speech_started":
+                if self.barge_in_policy.should_interrupt(
+                    event,
+                    responding=self._responding,
+                ):
                     await self.player.stop()
-                    if self._responding:
-                        await self.session.interrupt()
+                    await self.session.interrupt()
                 if event.type == "error":
                     raise RuntimeError(event.text or "realtime provider error")
                 if self.session_controller is not None:

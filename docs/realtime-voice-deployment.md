@@ -7,7 +7,7 @@ Guidebot 已实现级联语音链路的核心编排：
 ```text
 PCM → VAD/turn detection → STT → streaming LLM tokens
     → semantic segment queue → streaming TTS → player
-                              ↘ independent barge-in monitor
+                              ↘ configurable barge-in policy
 ```
 
 LLM token producer 与 TTS consumer 并发运行。语义分段器在句末标点或长度上限处提交短句，避免
@@ -27,8 +27,10 @@ arecord (16 kHz/mono/PCM16)
  → 24 kHz/mono/PCM16 chunks → persistent aplay
 ```
 
-它会输出用户与 Guidebot 的最终转录，检测到用户插话时清空本地播放缓冲并取消正在生成的回复。
-API Key 只读取 `DASHSCOPE_API_KEY`；代码和命令行参数都不接收明文密钥。
+它会输出用户与 Guidebot 的最终转录。插话默认使用 `transcript` 策略：只有出现足够长的转写文本
+或明确的“停一下/等一下”等短指令时，才清空本地播放缓冲并取消正在生成的回复；这样比只依赖
+`speech_started` 更不容易被咳嗽、清嗓子或喇叭回声误触发。API Key 只读取
+`DASHSCOPE_API_KEY`；代码和命令行参数都不接收明文密钥。
 
 ### 树莓派 5 安装
 
@@ -55,6 +57,33 @@ guidebot voice-qwen \
   --output-device plughw:1,0 \
   --voice Tina
 ```
+
+在 RASPBOT V2 的开放麦场景中，建议启用本地输入门控、唤醒词和 transcript 插话策略：
+
+```bash
+guidebot voice-qwen \
+  --voice Tina \
+  --input-device plughw:2,0 \
+  --output-device default \
+  --connect-retries 5 \
+  --require-wake \
+  --wake-phrase 你好小云 \
+  --sleep-phrase 今天聊到这里 \
+  --vad-threshold 0.75 \
+  --vad-silence-ms 900 \
+  --input-gate-rms 700 \
+  --input-gate-hangover-ms 250 \
+  --barge-in-mode transcript \
+  --barge-in-min-chars 4
+```
+
+如果环境很吵、咳嗽仍会误触发，可以先完全关闭播报期间插话：
+
+```bash
+guidebot voice-qwen ... --barge-in-mode off
+```
+
+如果你希望最快速插话，才使用 `--barge-in-mode vad`；它延迟最低，但最容易被非语言声音误触发。
 
 不要把 `export` 写进 Git 管理的文件。生产环境使用权限为 `0600` 的 systemd
 `EnvironmentFile` 或云端 secret manager，并限制服务账户权限。当前 provider 默认使用低延迟模式，

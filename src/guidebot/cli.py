@@ -46,6 +46,7 @@ async def run_voice_qwen(args: argparse.Namespace) -> None:
     if not os.getenv("DASHSCOPE_API_KEY"):
         raise SystemExit("请先设置 DASHSCOPE_API_KEY 环境变量")
     from .voice.audio_gate import NoiseGateAudioSource
+    from .voice.barge_in import BargeInMode, BargeInPolicy
     from .voice.commands import AlsaVolumeController, VoiceIntentRouter
     from .voice.native_runtime import NativeVoiceRuntime
     from .voice.providers import DashScopeRealtimeConfig, DashScopeRealtimeSession
@@ -89,6 +90,10 @@ async def run_voice_qwen(args: argparse.Namespace) -> None:
         _print_realtime_event,
         session_controller,
         command_router,
+        BargeInPolicy(
+            BargeInMode(args.barge_in_mode),
+            min_transcript_chars=args.barge_in_min_chars,
+        ),
     )
     try:
         await runtime.run()
@@ -211,6 +216,18 @@ def main() -> None:
     qwen.add_argument("--volume-device", default="default")
     qwen.add_argument("--volume-mixer", default="Master")
     qwen.add_argument("--volume-step", type=int, default=10)
+    qwen.add_argument(
+        "--barge-in-mode",
+        choices=("off", "transcript", "vad"),
+        default="transcript",
+        help="interrupt policy while Guidebot is speaking; vad is fastest but noisy",
+    )
+    qwen.add_argument(
+        "--barge-in-min-chars",
+        type=int,
+        default=4,
+        help="minimum transcribed characters required for transcript-mode interruption",
+    )
     evolve = subparsers.add_parser("evolve")
     evolve.add_argument("--dry-run", action="store_true", required=True)
     args = parser.parse_args()
