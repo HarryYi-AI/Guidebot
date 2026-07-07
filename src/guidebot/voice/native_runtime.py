@@ -7,6 +7,7 @@ from collections.abc import Callable
 
 from .interfaces import AudioPlayer, AudioSource, NativeSpeechSession
 from .providers.dashscope_realtime import RealtimeEvent
+from .session_control import WakeSleepController
 
 
 class NativeVoiceRuntime:
@@ -16,11 +17,13 @@ class NativeVoiceRuntime:
         player: AudioPlayer,
         session: NativeSpeechSession,
         on_event: Callable[[object], None] | None = None,
+        session_controller: WakeSleepController | None = None,
     ) -> None:
         self.source = source
         self.player = player
         self.session = session
         self.on_event = on_event
+        self.session_controller = session_controller
         self._responding = False
 
     async def run(self) -> None:
@@ -53,6 +56,11 @@ class NativeVoiceRuntime:
 
     async def _playback(self) -> None:
         async for audio in self.session.receive_audio():
+            if (
+                self.session_controller is not None
+                and not self.session_controller.allow_playback
+            ):
+                continue
             await self.player.play(audio)
 
     async def _events(self) -> None:
@@ -68,5 +76,16 @@ class NativeVoiceRuntime:
                         await self.session.interrupt()
                 if event.type == "error":
                     raise RuntimeError(event.text or "realtime provider error")
+                if self.session_controller is not None:
+                    decision = self.session_controller.update(event)
+                    if decision.stop_playback:
+                        await self.player.stop()
+                    if decision.interrupt_response and self._responding:
+                        await self.session.interrupt()
+                    if self.on_event is not None:
+                        for generated_event in decision.generated_events:
+                            self.on_event(generated_event)
+                    if not decision.emit_event:
+                        continue
             if self.on_event is not None:
                 self.on_event(event)

@@ -36,13 +36,17 @@ def _print_realtime_event(event: object) -> None:
         print(f"[Guidebot] {event.text}")
     elif event.type == "session.open":
         print("已连接 Qwen Realtime，可以开始说话（Ctrl+C 退出）")
+    elif event.type in {"guidebot.session.awake", "guidebot.session.sleep"}:
+        print(f"[Guidebot] {event.text}")
 
 
 async def run_voice_qwen(args: argparse.Namespace) -> None:
     if not os.getenv("DASHSCOPE_API_KEY"):
         raise SystemExit("请先设置 DASHSCOPE_API_KEY 环境变量")
+    from .voice.audio_gate import NoiseGateAudioSource
     from .voice.native_runtime import NativeVoiceRuntime
     from .voice.providers import DashScopeRealtimeConfig, DashScopeRealtimeSession
+    from .voice.session_control import WakeSleepController
     from .voice.system_audio import AplayAudioPlayer, ArecordAudioSource
 
     input_config = VoiceConfig(sample_rate=16_000, channels=1, sample_width_bytes=2)
@@ -54,11 +58,27 @@ async def run_voice_qwen(args: argparse.Namespace) -> None:
         turn_detection_threshold=args.vad_threshold,
         turn_detection_silence_duration_ms=args.vad_silence_ms,
     )
+    source = ArecordAudioSource(input_config, args.input_device)
+    if args.input_gate_rms > 0:
+        source = NoiseGateAudioSource(
+            source,
+            rms_threshold=args.input_gate_rms,
+            hangover_ms=args.input_gate_hangover_ms,
+        )
+    session_controller = None
+    if args.require_wake:
+        session_controller = WakeSleepController(
+            wake_phrases=tuple(args.wake_phrase),
+            sleep_phrases=tuple(args.sleep_phrase),
+            require_wake=True,
+            debug_inactive_transcripts=args.debug_inactive_transcripts,
+        )
     runtime = NativeVoiceRuntime(
-        ArecordAudioSource(input_config, args.input_device),
+        source,
         AplayAudioPlayer(output_config, args.output_device),
         DashScopeRealtimeSession(provider_config),
         _print_realtime_event,
+        session_controller,
     )
     try:
         await runtime.run()
@@ -149,6 +169,34 @@ def main() -> None:
         type=int,
         help="silence duration before ending a turn; e.g. 700-1000",
     )
+    qwen.add_argument(
+        "--input-gate-rms",
+        type=float,
+        default=0,
+        help="zero microphone frames below this RMS amplitude; try 400-1200",
+    )
+    qwen.add_argument(
+        "--input-gate-hangover-ms",
+        type=int,
+        default=250,
+        help="keep sending speech briefly after RMS drops below the local gate",
+    )
+    qwen.add_argument(
+        "--require-wake",
+        action="store_true",
+        help="wait for a wake phrase before playing model replies",
+    )
+    qwen.add_argument(
+        "--wake-phrase",
+        action="append",
+        default=["你好guidebot", "你好小盖", "小盖同学"],
+    )
+    qwen.add_argument(
+        "--sleep-phrase",
+        action="append",
+        default=["今天聊到这里", "结束对话", "先这样", "不用聊了", "休眠"],
+    )
+    qwen.add_argument("--debug-inactive-transcripts", action="store_true")
     evolve = subparsers.add_parser("evolve")
     evolve.add_argument("--dry-run", action="store_true", required=True)
     args = parser.parse_args()
