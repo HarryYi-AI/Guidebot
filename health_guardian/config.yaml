@@ -1,0 +1,36 @@
+camera:
+  camera_id: 0
+  frame_width: 640
+  frame_height: 480
+  show_window: true
+  fourcc: MJPG
+
+model:
+  backend: opencv_onnx
+  model_path: yolov8n-pose.onnx
+  imgsz: 320
+  conf: 0.35
+  nms: 0.45
+  keypoint_conf: 0.25
+
+roi:
+  enabled: false
+  x1: 0
+  y1: 0
+  x2: 640
+  y2: 480
+
+sitting:
+  sit_limit_seconds: 60
+  reset_seconds: 30
+  remind_cooldown_seconds: 60
+  detect_interval: 0.5
+  smooth_window: 10
+  sitting_ratio_threshold: 0.6
+
+voice:
+  mode: audio_file
+  audio_file: sounds/sitremind.wav
+  max_seconds: 20
+  remind_texts:
+    - 主人，你已经长时间坐着了，请起来活动一下。
