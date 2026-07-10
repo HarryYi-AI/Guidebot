@@ -3,9 +3,13 @@
 Guidebot 是一个以自适应 agent 为总枢纽的桌面宠物机器人项目。目标能力包括环境温度与房间
 状态感知、空调调节、自然对话、触摸互动，以及未来的视觉和移动能力。
 
-当前版本是一个可运行的自进化 Agent OS 核心原型：
+当前版本是一个统一 runtime + 自进化 Agent OS 核心原型。语音聊天、场景识别、健康检测、
+闹钟计时和移动停止不再作为四个互相孤立的脚本运行，而是先统一产出 Event，再由规则意图分析、
+调度器和安全门决定是否执行模块动作：
 
 - 事件总线与统一传感器/动作模型
+- EventBus → IntentAnalyzer → Scheduler → SafetyGate → Modules 的统一 runtime
+- 语音、场景、健康、闹钟、移动、温控 mock 的轻量模块边界
 - 可替换的硬件适配器和内存模拟器
 - 可替换的 Agent 接口与基础温控、触摸、空气质量行为
 - 位于 agent 和物理设备之间的确定性安全门
@@ -29,6 +33,13 @@ guidebot demo
 guidebot simulate
 guidebot evolve --dry-run
 guidebot voice-demo
+guidebot run
+guidebot intent parse "明早七点叫我" --json
+guidebot scene scan --label fire --json
+guidebot health check --sedentary --json
+guidebot alarm set --time "07:00" --json
+guidebot schedule demo --scenario fire --json
+guidebot climate status --json
 pytest
 ```
 
@@ -59,6 +70,40 @@ PYTHONPATH=src python -m guidebot.cli demo
 实时 token→TTS、原生 speech-to-speech、情感语音与上车部署方案见
 [docs/realtime-voice-deployment.md](docs/realtime-voice-deployment.md)。
 
+## Unified Runtime
+
+Guidebot 内部优先使用 CLI/Python API，而不是让外部 MCP 或 LLM 直接控制物理设备。MCP 后续只作为
+外部包装层；内部链路保持可测试、低 token、低复杂度：
+
+```text
+Raw Input / Sensor / Timer / Voice
+  → EventBus
+  → IntentAnalyzer
+  → Scheduler
+  → Module Executor
+  → SafetyGate
+  → Device / TTS / Message
+  → logs/*.jsonl
+```
+
+规则意图分析器不会依赖 LLM 决定物理动作。明火、摔倒、超声波障碍等高优先级意图可以抢占聊天、
+TTS、移动和健康提醒；久坐、普通场景播报和温控建议有 cooldown，避免反复打扰。温控当前只做
+状态和建议，不真实控制空调，未来可接红外或 Home Assistant adapter。
+
+课程源码和随车示例不进入 Guidebot 仓库；树莓派已有：
+
+```text
+/home/pi/project_demo
+```
+
+本地开发机也已有：
+
+```text
+/workspace/ylj/harry_main/bot/课程程序源码/source_code
+```
+
+需要复用时通过模块 adapter 调用外部路径，不复制模型、图片、notebook 或厂商源码到 GitHub。
+
 ## Voice Module
 
 `src/guidebot/voice/` 提供独立、可整体替换的异步语音流水线：PCM 音频、VAD 轮次检测、STT、
@@ -84,8 +129,9 @@ Observation → Router → Skill → Safety → Device → Feedback
 场景中比较候选技能和父技能：存在任何安全违规立即拒绝，只有评测分数严格提升才能上线。
 被拒绝的候选及原因保留在 `rejected_skill_buffer`，用于后续反思而不会污染 active library。
 
-当前回归基线为 48 项 pytest 测试，覆盖旧 demo、路由与记忆公式、失败归因、技能谱系、房间
-仿真、候选拒绝/接纳和完整自进化闭环；代码同时通过 Ruff 静态检查。
+当前回归测试覆盖旧 demo、路由与记忆公式、失败归因、技能谱系、房间仿真、候选拒绝/接纳、
+完整自进化闭环、语音 runtime，以及统一 Event/Intent/Scheduler/SafetyGate/CLI；代码同时通过
+Ruff 静态检查。
 
 ## 近期路线
 
