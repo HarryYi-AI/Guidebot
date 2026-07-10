@@ -56,6 +56,22 @@ guidebot voice-qwen --voice Tina
 设备；默认使用低延迟对话模式，不启用联网搜索。需要实时搜索时加 `--search`，但首句和每轮回复
 都会更慢。
 
+实机常驻运行推荐使用 `serve`，而不是手动执行一次性测试命令：
+
+```bash
+guidebot serve \
+  --voice Tina \
+  --input-device plughw:2,0 \
+  --output-device default \
+  --connect-retries 5 \
+  --input-gate-rms 800 \
+  --vad-threshold 0.8 \
+  --vad-silence-ms 800
+```
+
+`serve` 会让语音处于唤醒等待状态，并同时运行传感器/外部脚本轮询。后台场景、健康、超声波或
+闹钟事件会自动进入统一 runtime，不需要用户主动询问。
+
 不安装项目也可直接演示：
 
 ```bash
@@ -99,10 +115,53 @@ TTS、移动和健康提醒；久坐、普通场景播报和温控建议有 cool
 本地开发机也已有：
 
 ```text
-/workspace/ylj/harry_main/bot/课程程序源码/source_code
+/workspace/ylj/harry_main/bot/课程程序源码/source_code/project_demo
 ```
 
-需要复用时通过模块 adapter 调用外部路径，不复制模型、图片、notebook 或厂商源码到 GitHub。
+这两个 `project_demo` 目录内容相同，只是树莓派和开发机路径不同。需要复用时通过模块 adapter
+调用外部路径，不复制模型、图片、notebook 或厂商源码到 GitHub。
+
+外部脚本接入约定：脚本每次运行输出一个 JSON。Guidebot 负责 while 循环、调度、抢占和安全门。
+
+场景识别脚本输出示例：
+
+```json
+{"label": "fire", "summary": "检测到疑似明火", "confidence": 0.95}
+```
+
+健康检测脚本输出示例：
+
+```json
+{"label": "sedentary", "sedentary": true, "fatigue": false, "confidence": 0.9}
+```
+
+超声波流式脚本每行输出一个 JSON：
+
+```json
+{"obstacle": true, "distance_mm": 120}
+```
+
+Guidebot 仓库提供薄适配器样例，可复制到树莓派：
+
+```bash
+mkdir -p /home/pi/project_demo/guidebot_adapters
+cp examples/raspberry_pi_adapters/*.py /home/pi/project_demo/guidebot_adapters/
+chmod +x /home/pi/project_demo/guidebot_adapters/*.py
+```
+
+对应常驻命令示例：
+
+```bash
+guidebot serve \
+  --voice Tina \
+  --input-device plughw:2,0 \
+  --output-device default \
+  --scene-command 'python3 /home/pi/project_demo/guidebot_adapters/scene_once.py' \
+  --scene-interval 10 \
+  --health-command 'python3 /home/pi/project_demo/guidebot_adapters/health_once.py' \
+  --health-interval 30 \
+  --ultrasonic-stream-command 'python3 /home/pi/project_demo/guidebot_adapters/ultrasonic_stream.py'
+```
 
 ## Voice Module
 

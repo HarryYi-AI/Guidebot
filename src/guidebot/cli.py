@@ -15,6 +15,7 @@ from .logbook import RuntimeLogger, to_jsonable
 from .models import Reading, SensorKind
 from .runtime import GuidebotRuntime, RuntimeTrace
 from .self_evolving import build_default_library
+from .service import CommandPoller, CommandStream, GuidebotService, GuidebotServiceConfig
 from .simulation import SimulationSuite
 from .voice.backends import (
     EnergyVAD,
@@ -106,6 +107,150 @@ async def run_voice_qwen(args: argparse.Namespace) -> None:
         await runtime.run()
     except KeyboardInterrupt:
         pass
+
+
+async def run_serve(args: argparse.Namespace) -> None:
+    """Run the resident multimodal robot loop."""
+    from .voice.providers import RealtimeEvent
+    from .voice.session_control import TRANSCRIPT_DONE
+
+    command_pollers = []
+    if args.scene_command:
+        command_pollers.append(
+            CommandPoller("scene_command", args.scene_command, args.scene_interval, "scene")
+        )
+    if args.health_command:
+        command_pollers.append(
+            CommandPoller("health_command", args.health_command, args.health_interval, "health")
+        )
+    if args.ultrasonic_command:
+        command_pollers.append(
+            CommandPoller(
+                "ultrasonic_command",
+                args.ultrasonic_command,
+                args.ultrasonic_interval,
+                "ultrasonic",
+            )
+        )
+    command_streams = []
+    if args.scene_stream_command:
+        command_streams.append(CommandStream("scene_stream", args.scene_stream_command, "scene"))
+    if args.health_stream_command:
+        command_streams.append(CommandStream("health_stream", args.health_stream_command, "health"))
+    if args.ultrasonic_stream_command:
+        command_streams.append(
+            CommandStream("ultrasonic_stream", args.ultrasonic_stream_command, "ultrasonic")
+        )
+
+    voice_runtime = None
+
+    async def interrupt_voice() -> None:
+        if voice_runtime is not None:
+            await voice_runtime.interrupt_now()
+
+    service = GuidebotService(
+        GuidebotServiceConfig(
+            log_dir=args.log_dir,
+            notify_command=args.notify_command,
+            notify_min_priority=args.notify_min_priority,
+            command_pollers=command_pollers,
+            command_streams=command_streams,
+            mock_sensors=args.mock_sensors,
+        ),
+        on_preempt=interrupt_voice,
+    )
+
+    def on_realtime_event(event: object) -> None:
+        _print_realtime_event(event)
+        if isinstance(event, RealtimeEvent) and event.type == TRANSCRIPT_DONE and event.text:
+            service.emit(
+                Event(
+                    "user.text",
+                    "voice_asr",
+                    {"text": event.text},
+                    confidence=1.0,
+                    priority_hint=10,
+                )
+            )
+
+    tasks: list[asyncio.Task[None]] = [
+        asyncio.create_task(service.run_forever(), name="guidebot-service")
+    ]
+
+    if args.stdin_text:
+        tasks.append(asyncio.create_task(_stdin_text_loop(service), name="stdin-text"))
+
+    if not args.no_voice:
+        if not os.getenv("DASHSCOPE_API_KEY"):
+            raise SystemExit("请先设置 DASHSCOPE_API_KEY 环境变量，或加 --no-voice 只跑传感器链路")
+        from .voice.audio_gate import NoiseGateAudioSource
+        from .voice.barge_in import BargeInMode, BargeInPolicy
+        from .voice.commands import AlsaVolumeController, VoiceIntentRouter
+        from .voice.native_runtime import NativeVoiceRuntime
+        from .voice.providers import DashScopeRealtimeConfig, DashScopeRealtimeSession
+        from .voice.session_control import WakeSleepController
+        from .voice.system_audio import AplayAudioPlayer, ArecordAudioSource
+
+        input_config = VoiceConfig(sample_rate=16_000, channels=1, sample_width_bytes=2)
+        output_config = VoiceConfig(sample_rate=24_000, channels=1, sample_width_bytes=2)
+        source = ArecordAudioSource(input_config, args.input_device)
+        if args.input_gate_rms > 0:
+            source = NoiseGateAudioSource(
+                source,
+                rms_threshold=args.input_gate_rms,
+                hangover_ms=args.input_gate_hangover_ms,
+            )
+        session_controller = WakeSleepController(
+            wake_phrases=tuple(args.wake_phrase),
+            sleep_phrases=tuple(args.sleep_phrase),
+            require_wake=True,
+            debug_inactive_transcripts=args.debug_inactive_transcripts,
+        )
+        command_router = None
+        if not args.disable_voice_commands:
+            command_router = VoiceIntentRouter(
+                AlsaVolumeController(device=args.volume_device, mixer=args.volume_mixer),
+                volume_step=args.volume_step,
+            )
+        voice_runtime = NativeVoiceRuntime(
+            source,
+            AplayAudioPlayer(output_config, args.output_device),
+            DashScopeRealtimeSession(
+                DashScopeRealtimeConfig(
+                    voice=args.voice,
+                    enable_search=args.search and not args.no_search,
+                    connect_retries=args.connect_retries,
+                    turn_detection_threshold=args.vad_threshold,
+                    turn_detection_silence_duration_ms=args.vad_silence_ms,
+                )
+            ),
+            on_realtime_event,
+            session_controller,
+            command_router,
+            BargeInPolicy(
+                BargeInMode(args.barge_in_mode),
+                min_transcript_chars=args.barge_in_min_chars,
+                stop_playback_on_speech_start=args.barge_in_early_stop_ms > 0,
+                speech_start_hold_ms=args.barge_in_early_stop_ms,
+            ),
+        )
+        tasks.append(asyncio.create_task(voice_runtime.run(), name="voice-qwen"))
+
+    print("Guidebot 常驻服务已启动。语音等待唤醒；传感器异常会自动通知。Ctrl+C 退出。")
+    try:
+        await asyncio.gather(*tasks)
+    finally:
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await service.stop()
+
+
+async def _stdin_text_loop(service: GuidebotService) -> None:
+    while True:
+        text = await asyncio.to_thread(input, "> ")
+        if text.strip():
+            service.emit(Event("user.text", "stdin", {"text": text.strip()}))
 
 
 async def run_demo() -> None:
@@ -330,6 +475,23 @@ def main(argv: list[str] | None = None) -> None:
     run_parser = subparsers.add_parser("run")
     run_parser.add_argument("--json", action="store_true")
     run_parser.set_defaults(handler=run_runtime_command)
+    serve = subparsers.add_parser("serve", help="run resident voice/sensor runtime")
+    add_qwen_args(serve)
+    serve.add_argument("--no-voice", action="store_true")
+    serve.add_argument("--stdin-text", action="store_true")
+    serve.add_argument("--log-dir", default="logs")
+    serve.add_argument("--notify-command")
+    serve.add_argument("--notify-min-priority", type=int, default=50)
+    serve.add_argument("--scene-command")
+    serve.add_argument("--scene-stream-command")
+    serve.add_argument("--scene-interval", type=float, default=10.0)
+    serve.add_argument("--health-command")
+    serve.add_argument("--health-stream-command")
+    serve.add_argument("--health-interval", type=float, default=30.0)
+    serve.add_argument("--ultrasonic-command")
+    serve.add_argument("--ultrasonic-stream-command")
+    serve.add_argument("--ultrasonic-interval", type=float, default=0.3)
+    serve.add_argument("--mock-sensors", action="store_true")
     chat = subparsers.add_parser("chat")
     add_qwen_args(chat)
     subparsers.add_parser("demo")
@@ -392,6 +554,11 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command in {"voice-qwen", "chat"}:
         try:
             asyncio.run(run_voice_qwen(args))
+        except KeyboardInterrupt:
+            pass
+    elif args.command == "serve":
+        try:
+            asyncio.run(run_serve(args))
         except KeyboardInterrupt:
             pass
 

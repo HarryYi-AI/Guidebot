@@ -1,0 +1,68 @@
+import json
+import sys
+
+import pytest
+
+from guidebot.events import Event
+from guidebot.service import CommandPoller, GuidebotService, _events_from_command
+
+
+@pytest.mark.asyncio
+async def test_service_fire_event_preempts_and_notifies(tmp_path, capsys) -> None:
+    preempted = False
+
+    async def on_preempt() -> None:
+        nonlocal preempted
+        preempted = True
+
+    service = GuidebotService(on_preempt=on_preempt)
+
+    trace = await service.handle_event(
+        Event("scene.detected", "camera", {"label": "fire", "summary": "发现明火"})
+    )
+
+    assert trace.intent.intent_type.value == "safety_fire_alert"
+    assert preempted is True
+    assert "明火" in capsys.readouterr().out
+
+
+@pytest.mark.asyncio
+async def test_command_poller_converts_scene_json(tmp_path) -> None:
+    script = tmp_path / "scene.py"
+    script.write_text(
+        "import json\n"
+        "print(json.dumps({'label': 'fire', 'summary': '发现明火', 'confidence': 0.97}))\n",
+        encoding="utf-8",
+    )
+
+    events = await _events_from_command(
+        CommandPoller("scene_command", f"{sys.executable} {script}", 1.0, "scene")
+    )
+
+    assert len(events) == 1
+    assert events[0].event_type == "scene.detected"
+    assert events[0].payload["label"] == "fire"
+    assert events[0].priority_hint == 100
+
+
+@pytest.mark.asyncio
+async def test_service_alarm_text_schedules_trigger() -> None:
+    service = GuidebotService()
+
+    await service.handle_event(Event("user.text", "test", {"text": "0秒后提醒我"}))
+    trace = await service.run_once(timeout_seconds=0.5)
+
+    assert trace is not None
+    assert trace.event.event_type == "alarm.triggered"
+    assert trace.intent.intent_type.value == "timer_reminder"
+
+
+def test_command_poller_accepts_direct_event_json(tmp_path) -> None:
+    payload = {
+        "event_type": "ultrasonic.obstacle",
+        "source": "ultrasonic",
+        "payload": {"obstacle": True, "distance_mm": 100},
+        "confidence": 1.0,
+        "priority_hint": 100,
+    }
+    assert json.dumps(payload, ensure_ascii=False)

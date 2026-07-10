@@ -44,7 +44,7 @@ class IntentAnalyzer:
         if _contains_any(normalized, ("停止", "停下", "别动", "刹车", "停一下")):
             return self._intent(IntentType.MOBILITY_STOP, event, 100, {"text": text})
 
-        if _contains_any(normalized, ("闹钟", "提醒", "分钟后", "小时后", "明早", "明天早上")):
+        if _contains_any(normalized, ("闹钟", "提醒", "秒后", "分钟后", "小时后", "明早", "明天早上")):
             return self._intent(
                 IntentType.SET_ALARM,
                 event,
@@ -96,6 +96,9 @@ def _extract_time_hint(text: str) -> str | None:
     match = re.search(r"(\d+)\s*分钟后", text)
     if match:
         return f"+{match.group(1)}m"
+    match = re.search(r"(\d+)\s*秒后", text)
+    if match:
+        return f"+{match.group(1)}s"
     match = re.search(r"(\d+)\s*小时后", text)
     if match:
         return f"+{match.group(1)}h"

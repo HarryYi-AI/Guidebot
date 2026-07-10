@@ -54,6 +54,12 @@ class NativeVoiceRuntime:
                 await close_source()
             await self.session.close()
 
+    async def interrupt_now(self) -> None:
+        """Stop local playback and cancel the model response as soon as possible."""
+        await self.player.stop()
+        self._playback_hold_until = float("inf")
+        await self.session.interrupt()
+
     async def _capture(self) -> None:
         while True:
             frame = await self.source.read()
