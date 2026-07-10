@@ -1,0 +1,116 @@
+[
+  {
+    "name": "normal_office",
+    "expected": "normal",
+    "file": "test_images\\normal_office.jpg",
+    "source_title": "The Interior of a Large Open Space Office",
+    "source_page": "https://altphotos.com/photo/the-interior-of-a-large-open-space-office-2529/",
+    "download_url": "https://media.altphotos.com/cache/images/2017/09/07/03/752/office-open-space.jpg",
+    "license": "CC0",
+    "download_status": "kept_existing_after_error",
+    "download_error": "<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>"
+  },
+  {
+    "name": "fire_or_smoke",
+    "expected": "abnormal_fire_smoke",
+    "file": "test_images\\fire_or_smoke.jpg",
+    "source_title": "ABC News house fire image",
+    "source_page": "https://www.abc.net.au/news/2013-01-09/an-fiji-fire-authorities-reiterate-safety-message/4457718",
+    "download_url": "https://live-production.wcms.abc-cdn.net.au/adb531f8931e02a16e6dbe9f75edee97?cropH=472&cropW=840&height=485&impolicy=wcms_crop_resize&width=862&xPos=0&yPos=0",
+    "license": "Source page terms apply",
+    "download_status": "kept_existing_after_error",
+    "download_error": "<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>"
+  },
+  {
+    "name": "flooded_room",
+    "expected": "abnormal_water",
+    "file": "test_images\\flooded_room.jpg",
+    "source_title": "Flooded room image",
+    "source_page": "https://www.boredpanda.com/best-surreal-liminal-spaces/",
+    "download_url": "https://static.boredpanda.com/blog/wp-content/uploads/2025/05/681c47d02df26_h0c8bked9fzc1-jpeg__700.jpg",
+    "license": "Source page terms apply",
+    "download_status": "kept_existing_after_error",
+    "download_error": "<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>"
+  },
+  {
+    "name": "person_on_floor",
+    "expected": "abnormal_person_fall",
+    "file": "test_images\\person_on_floor.jpg",
+    "source_title": "Roboflow falling pose estimation example",
+    "source_page": "https://universe.roboflow.com/humna-pose-data/falling-pose-estimation",
+    "download_url": "https://source.roboflow.com/EbPANzricqVcPCiQMmLY7oljIY92/00vZM15IA50LLEpXPmw2/thumb.jpg",
+    "license": "CC BY 4.0",
+    "download_status": "kept_existing_after_error",
+    "download_error": "<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>"
+  },
+  {
+    "name": "window_closed",
+    "expected": "normal_window_closed",
+    "file": "test_images\\window_closed.bmp",
+    "source_title": "Generated closed-window control image",
+    "source_page": "generated locally",
+    "download_url": "",
+    "license": "Generated local test image",
+    "download_status": "generated"
+  },
+  {
+    "name": "window_open",
+    "expected": "abnormal_window_open",
+    "file": "test_images\\window_open.jpg",
+    "source_title": "Room with open operable window",
+    "source_page": "https://ecochoicewindows.ca/fixed-or-operable-windows-which-should-you-choose/",
+    "download_url": "https://ecochoicewindows.ca/wp-content/uploads/2023/09/a-room-with-an-open-window-2021-10-23-20-49-42-utc-scaled-1-1200x800.jpg",
+    "license": "Source page terms apply",
+    "download_status": "downloaded"
+  },
+  {
+    "name": "blocked_fire_exit",
+    "expected": "abnormal_blocked_exit",
+    "file": "test_images\\blocked_fire_exit.png",
+    "source_title": "Blocked fire exit",
+    "source_page": "https://vestafire.co.uk/common-fire-hazards-in-small-businesses-what-you-need-to-know/",
+    "download_url": "https://vestafire.co.uk/wp-content/uploads/2025/04/Blocked-Fire-Escape.png",
+    "license": "Source page terms apply",
+    "download_status": "downloaded"
+  },
+  {
+    "name": "overloaded_socket",
+    "expected": "abnormal_electrical_risk",
+    "file": "test_images\\overloaded_socket.png",
+    "source_title": "Overloaded electrical socket",
+    "source_page": "https://vestafire.co.uk/common-fire-hazards-in-small-businesses-what-you-need-to-know/",
+    "download_url": "https://vestafire.co.uk/wp-content/uploads/2025/04/Overloaded-Socket.png",
+    "license": "Source page terms apply",
+    "download_status": "downloaded"
+  },
+  {
+    "name": "unmaintained_fire_equipment",
+    "expected": "abnormal_safety_equipment",
+    "file": "test_images\\unmaintained_fire_equipment.png",
+    "source_title": "Unmaintained fire safety equipment",
+    "source_page": "https://vestafire.co.uk/common-fire-hazards-in-small-businesses-what-you-need-to-know/",
+    "download_url": "https://vestafire.co.uk/wp-content/uploads/2025/04/Unmaintained-Fire-Equipment.png",
+    "license": "Source page terms apply",
+    "download_status": "downloaded"
+  },
+  {
+    "name": "broken_window_glass",
+    "expected": "abnormal_broken_window",
+    "file": "test_images\\broken_window_glass.jpg",
+    "source_title": "Broken window",
+    "source_page": "https://blogs.loc.gov/thesignal/2012/11/when-data-loss-is-personal/",
+    "download_url": "https://blogs.loc.gov/thesignal/files/2012/11/window05-225x300.jpg",
+    "license": "Library of Congress blog terms apply",
+    "download_status": "downloaded"
+  },
+  {
+    "name": "camera_night_vision_issue",
+    "expected": "abnormal_camera_view",
+    "file": "test_images\\camera_night_vision_issue.bmp",
+    "source_title": "Generated camera blocked/overexposed control image",
+    "source_page": "generated locally",
+    "download_url": "",
+    "license": "Generated local test image",
+    "download_status": "generated"
+  }
+]
