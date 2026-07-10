@@ -204,7 +204,13 @@ class DashScopeRealtimeSession:
             return
         cancel = getattr(self._conversation, "cancel_response", None)
         if cancel is not None:
-            await asyncio.to_thread(cancel)
+            try:
+                await asyncio.to_thread(cancel)
+            except Exception:
+                # The realtime websocket can already be closed when a high-priority
+                # safety event tries to preempt speech. Interruption is best-effort;
+                # a closed connection should not crash the resident robot service.
+                return
 
     async def close(self) -> None:
         if self._closed:

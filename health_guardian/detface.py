@@ -1,4 +1,5 @@
-import math
+import json
+import os
 import platform
 import random
 import shutil
@@ -117,6 +118,22 @@ def play_audio_file(audio_path, max_seconds):
 def speak(text, voice_cfg):
     mode = voice_cfg.get("mode", "print")
     max_seconds = voice_cfg.get("max_seconds", 20)
+    if os.getenv("GUIDEBOT_EVENT_JSONL"):
+        print(
+            json.dumps(
+                {
+                    "label": "fatigue",
+                    "sedentary": False,
+                    "fatigue": True,
+                    "message": text,
+                    "confidence": 0.9,
+                },
+                ensure_ascii=False,
+            ),
+            flush=True,
+        )
+        if os.getenv("GUIDEBOT_DISABLE_LOCAL_REMINDER_AUDIO", "1") != "0":
+            return
     print(f"[REMIND] {text}")
 
     if mode == "print":
@@ -352,6 +369,8 @@ def main():
         raise RuntimeError("mediapipe is required. Install it with: python -m pip install mediapipe") from exc
 
     cfg = load_config()
+    if os.getenv("GUIDEBOT_EVENT_JSONL") or os.getenv("GUIDEBOT_HEADLESS"):
+        cfg["camera"]["show_window"] = False
     camera_cfg = cfg["camera"]
     face_cfg = cfg["face"]
     fatigue_cfg = cfg["fatigue"]

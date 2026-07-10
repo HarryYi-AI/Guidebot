@@ -4,7 +4,13 @@ import sys
 import pytest
 
 from guidebot.events import Event
-from guidebot.service import CommandPoller, GuidebotService, _events_from_command
+from guidebot.service import (
+    CommandPoller,
+    CommandStream,
+    GuidebotService,
+    _event_from_json_line,
+    _events_from_command,
+)
 
 
 @pytest.mark.asyncio
@@ -24,6 +30,21 @@ async def test_service_fire_event_preempts_and_notifies(tmp_path, capsys) -> Non
     assert trace.intent.intent_type.value == "safety_fire_alert"
     assert preempted is True
     assert "明火" in capsys.readouterr().out
+
+
+@pytest.mark.asyncio
+async def test_preempt_callback_failure_does_not_crash_service(capsys) -> None:
+    async def broken_preempt() -> None:
+        raise ConnectionError("closed websocket")
+
+    service = GuidebotService(on_preempt=broken_preempt)
+
+    trace = await service.handle_event(
+        Event("scene.detected", "camera", {"label": "fire", "summary": "发现明火"})
+    )
+
+    assert trace.intent.intent_type.value == "safety_fire_alert"
+    assert "语音抢占未完成" in capsys.readouterr().out
 
 
 @pytest.mark.asyncio
@@ -66,3 +87,18 @@ def test_command_poller_accepts_direct_event_json(tmp_path) -> None:
         "priority_hint": 100,
     }
     assert json.dumps(payload, ensure_ascii=False)
+
+
+def test_stream_ignores_non_json_logs() -> None:
+    assert _event_from_json_line(CommandStream("health", "cmd", "health"), b"[STATE] ok\n") is None
+
+
+def test_stream_converts_health_json_line() -> None:
+    event = _event_from_json_line(
+        CommandStream("health", "cmd", "health"),
+        b'{"label":"fatigue","fatigue":true,"confidence":0.9}\n',
+    )
+
+    assert event is not None
+    assert event.event_type == "health.detected"
+    assert event.payload["fatigue"] is True

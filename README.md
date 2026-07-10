@@ -158,10 +158,13 @@ guidebot serve \
   --output-device default \
   --scene-command 'python3 /home/pi/project_demo/guidebot_adapters/scene_once.py' \
   --scene-interval 10 \
-  --health-command 'python3 /home/pi/project_demo/guidebot_adapters/health_once.py' \
-  --health-interval 30 \
+  --health-stream-command 'cd ~/Guidebot && GUIDEBOT_EVENT_JSONL=1 GUIDEBOT_DISABLE_LOCAL_REMINDER_AUDIO=1 python3 health_guardian/sitpose.py' \
+  --health-stream-command 'cd ~/Guidebot && GUIDEBOT_EVENT_JSONL=1 GUIDEBOT_DISABLE_LOCAL_REMINDER_AUDIO=1 python3 health_guardian/detface.py' \
   --ultrasonic-stream-command 'python3 /home/pi/project_demo/guidebot_adapters/ultrasonic_stream.py'
 ```
+
+`--health-stream-command` 可以重复传多次；上例同时接入久坐检测和面部疲劳检测。检测脚本在
+`GUIDEBOT_EVENT_JSONL=1` 下只把提醒事件输出为 JSONL，由 Guidebot 统一决定是否播报和如何抢占。
 
 ## Voice Module
 

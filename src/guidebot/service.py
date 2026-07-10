@@ -88,7 +88,10 @@ class GuidebotService:
         trace = self.runtime.ingest(event)
         if trace.task is not None and Scheduler.can_preempt(trace.task):
             if self.on_preempt is not None:
-                await self.on_preempt()
+                try:
+                    await self.on_preempt()
+                except Exception as exc:  # noqa: BLE001 - preemption is best-effort.
+                    print(f"[Guidebot] 语音抢占未完成，继续执行安全任务：{exc}", flush=True)
         await self._notify(trace)
         self._maybe_schedule_alarm(trace)
         return trace
@@ -326,6 +329,8 @@ def _event_from_payload(poller: CommandPoller, payload: dict[str, Any]) -> Event
 def _event_from_json_line(stream: CommandStream, line: bytes) -> Event | None:
     text = line.decode("utf-8", errors="replace").strip()
     if not text:
+        return None
+    if not text.startswith("{"):
         return None
     try:
         payload = json.loads(text)

@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 import os
+import sys
 
 from .devices import SimulatedDevice
 from .events import Event
@@ -29,6 +30,14 @@ from .voice.capture import TurnCapture
 from .voice.config import VoiceConfig
 from .voice.models import AudioFrame
 from .voice.pipeline import VoicePipeline
+
+
+def _configure_stdio() -> None:
+    """Prefer UTF-8 terminal output on Raspberry Pi SSH sessions."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            reconfigure(encoding="utf-8", errors="replace")
 
 
 def _print_realtime_event(event: object) -> None:
@@ -133,13 +142,13 @@ async def run_serve(args: argparse.Namespace) -> None:
             )
         )
     command_streams = []
-    if args.scene_stream_command:
-        command_streams.append(CommandStream("scene_stream", args.scene_stream_command, "scene"))
-    if args.health_stream_command:
-        command_streams.append(CommandStream("health_stream", args.health_stream_command, "health"))
-    if args.ultrasonic_stream_command:
+    for index, command in enumerate(args.scene_stream_command or (), start=1):
+        command_streams.append(CommandStream(f"scene_stream_{index}", command, "scene"))
+    for index, command in enumerate(args.health_stream_command or (), start=1):
+        command_streams.append(CommandStream(f"health_stream_{index}", command, "health"))
+    for index, command in enumerate(args.ultrasonic_stream_command or (), start=1):
         command_streams.append(
-            CommandStream("ultrasonic_stream", args.ultrasonic_stream_command, "ultrasonic")
+            CommandStream(f"ultrasonic_stream_{index}", command, "ultrasonic")
         )
 
     voice_runtime = None
@@ -470,6 +479,7 @@ def add_qwen_args(parser: argparse.ArgumentParser) -> None:
 
 
 def main(argv: list[str] | None = None) -> None:
+    _configure_stdio()
     parser = argparse.ArgumentParser(description="Guidebot development runtime")
     subparsers = parser.add_subparsers(dest="command")
     run_parser = subparsers.add_parser("run")
@@ -483,13 +493,13 @@ def main(argv: list[str] | None = None) -> None:
     serve.add_argument("--notify-command")
     serve.add_argument("--notify-min-priority", type=int, default=50)
     serve.add_argument("--scene-command")
-    serve.add_argument("--scene-stream-command")
+    serve.add_argument("--scene-stream-command", action="append")
     serve.add_argument("--scene-interval", type=float, default=10.0)
     serve.add_argument("--health-command")
-    serve.add_argument("--health-stream-command")
+    serve.add_argument("--health-stream-command", action="append")
     serve.add_argument("--health-interval", type=float, default=30.0)
     serve.add_argument("--ultrasonic-command")
-    serve.add_argument("--ultrasonic-stream-command")
+    serve.add_argument("--ultrasonic-stream-command", action="append")
     serve.add_argument("--ultrasonic-interval", type=float, default=0.3)
     serve.add_argument("--mock-sensors", action="store_true")
     chat = subparsers.add_parser("chat")
