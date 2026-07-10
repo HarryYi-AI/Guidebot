@@ -1,3 +1,4 @@
+import asyncio
 import json
 import sys
 
@@ -64,6 +65,32 @@ async def test_command_poller_converts_scene_json(tmp_path) -> None:
     assert events[0].event_type == "scene.detected"
     assert events[0].payload["label"] == "fire"
     assert events[0].priority_hint == 100
+
+
+@pytest.mark.asyncio
+async def test_service_stream_reads_json_with_noisy_stderr(tmp_path) -> None:
+    script = tmp_path / "stream.py"
+    script.write_text(
+        "import sys, time\n"
+        "print('mediapipe warning', file=sys.stderr)\n"
+        "print('{\"label\":\"fatigue\",\"fatigue\":true,\"confidence\":0.9}', flush=True)\n"
+        "time.sleep(0.1)\n",
+        encoding="utf-8",
+    )
+    service = GuidebotService()
+    service.config.command_streams.append(
+        CommandStream("health", f"{sys.executable} {script}", "health")
+    )
+    task = asyncio.create_task(service.run_forever())
+    try:
+        trace = await service.run_once(timeout_seconds=1.0)
+    finally:
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+        await service.stop()
+
+    assert trace is not None
+    assert trace.intent.intent_type.value == "health_fatigue"
 
 
 @pytest.mark.asyncio

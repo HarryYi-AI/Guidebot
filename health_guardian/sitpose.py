@@ -559,6 +559,7 @@ def main():  # 定义程序主函数。
     last_remind_time = 0  # 记录上一次提醒时间。
     last_detect_time = 0  # 记录上一次检测时间。
     last_frame_time = time.time()  # 记录上一帧时间，用于计算 FPS。
+    last_heartbeat_time = 0
 
     monitor_enabled = True  # 设置监测初始状态为开启。
     stable_state = "unknown"  # 设置初始稳定状态为 unknown。
@@ -629,6 +630,26 @@ def main():  # 定义程序主函数。
         sitting_seconds = accumulated_sitting_seconds  # 先取已经累计的坐姿秒数。
         if seated_since is not None:  # 如果当前正在坐着。
             sitting_seconds += time.time() - seated_since  # 加上当前坐姿片段的时长。
+        heartbeat_seconds = float(os.getenv("GUIDEBOT_HEALTH_HEARTBEAT_SECONDS", "0"))
+        if (
+            os.getenv("GUIDEBOT_EVENT_JSONL")
+            and heartbeat_seconds > 0
+            and now - last_heartbeat_time >= heartbeat_seconds
+        ):
+            print(
+                json.dumps(
+                    {
+                        "label": "normal",
+                        "sedentary": stable_state == "sitting",
+                        "fatigue": False,
+                        "sitting_seconds": round(sitting_seconds, 2),
+                        "confidence": 0.8,
+                    },
+                    ensure_ascii=False,
+                ),
+                flush=True,
+            )
+            last_heartbeat_time = now
 
         draw_roi(frame, roi_cfg)  # 绘制 ROI 区域。
         if target_box is not None:  # 如果当前有目标人物框。

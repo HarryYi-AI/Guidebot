@@ -394,6 +394,7 @@ def main():
     monitor_enabled = True
     last_detect_time = 0
     last_remind_time = 0
+    last_heartbeat_time = 0
     status = {
         "fatigue": False,
         "score": 0,
@@ -443,6 +444,26 @@ def main():
                         "pitch": 0.0,
                         "perclos": bool_ratio(state["eye_history"]),
                     }
+                heartbeat_seconds = float(os.getenv("GUIDEBOT_HEALTH_HEARTBEAT_SECONDS", "0"))
+                if (
+                    os.getenv("GUIDEBOT_EVENT_JSONL")
+                    and heartbeat_seconds > 0
+                    and now - last_heartbeat_time >= heartbeat_seconds
+                ):
+                    print(
+                        json.dumps(
+                            {
+                                "label": "normal",
+                                "sedentary": False,
+                                "fatigue": bool(status["fatigue"]),
+                                "fatigue_score": status["score"],
+                                "confidence": 0.8,
+                            },
+                            ensure_ascii=False,
+                        ),
+                        flush=True,
+                    )
+                    last_heartbeat_time = now
 
             draw_status(frame, status)
 

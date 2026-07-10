@@ -30,6 +30,10 @@ from .scheduler import Scheduler
 PreemptCallback = Callable[[], Awaitable[None]]
 
 
+def _ascii_logs() -> bool:
+    return os.getenv("GUIDEBOT_ASCII_LOGS") == "1"
+
+
 @dataclass(frozen=True, slots=True)
 class CommandPoller:
     """Polls an external command that prints JSON and converts it to events."""
@@ -91,7 +95,12 @@ class GuidebotService:
                 try:
                     await self.on_preempt()
                 except Exception as exc:  # noqa: BLE001 - preemption is best-effort.
-                    print(f"[Guidebot] 语音抢占未完成，继续执行安全任务：{exc}", flush=True)
+                    message = (
+                        f"voice preemption failed; safety task continues: {exc}"
+                        if _ascii_logs()
+                        else f"语音抢占未完成，继续执行安全任务：{exc}"
+                    )
+                    print(f"[Guidebot] {message}", flush=True)
         await self._notify(trace)
         self._maybe_schedule_alarm(trace)
         return trace
@@ -146,11 +155,12 @@ class GuidebotService:
 
     async def _stream_loop(self, stream: CommandStream) -> None:
         while True:
+            process: asyncio.subprocess.Process | None = None
             try:
                 process = await asyncio.create_subprocess_shell(
                     stream.command,
                     stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.DEVNULL,
                 )
                 if process.stdout is not None:
                     while True:
@@ -161,6 +171,15 @@ class GuidebotService:
                         if event is not None:
                             self.emit(event)
                 await process.wait()
+            except asyncio.CancelledError:
+                if process is not None and process.returncode is None:
+                    process.terminate()
+                    try:
+                        await asyncio.wait_for(process.wait(), timeout=1.0)
+                    except asyncio.TimeoutError:
+                        process.kill()
+                        await process.wait()
+                raise
             except OSError as exc:
                 self.emit(
                     Event(
@@ -197,6 +216,8 @@ class GuidebotService:
         message = str(action.get("message") or action.get("reason") or "")
         if not message:
             return
+        if _ascii_logs():
+            message = f"{task.target_module}.{task.action}"
         print(f"[Guidebot] {message}", flush=True)
         if self.config.notify_command is None or task.priority < self.config.notify_min_priority:
             return

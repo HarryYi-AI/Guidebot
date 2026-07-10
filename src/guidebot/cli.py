@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import locale
 import os
 import sys
 
@@ -33,11 +34,25 @@ from .voice.pipeline import VoicePipeline
 
 
 def _configure_stdio() -> None:
-    """Prefer UTF-8 terminal output on Raspberry Pi SSH sessions."""
+    """Respect locale by default; allow explicit stdio encoding override."""
+    encoding = os.getenv("GUIDEBOT_STDIO_ENCODING")
+    if not encoding:
+        preferred = locale.getpreferredencoding(False)
+        encoding = preferred if preferred.casefold() == "ascii" else ""
+    if not encoding:
+        return
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
         if reconfigure is not None:
-            reconfigure(encoding="utf-8", errors="replace")
+            reconfigure(encoding=encoding, errors="replace")
+
+
+def _ascii_logs() -> bool:
+    return os.getenv("GUIDEBOT_ASCII_LOGS") == "1"
+
+
+def _runtime_text(chinese: str, english: str) -> str:
+    return english if _ascii_logs() else chinese
 
 
 def _print_realtime_event(event: object) -> None:
@@ -46,11 +61,11 @@ def _print_realtime_event(event: object) -> None:
     if not isinstance(event, RealtimeEvent):
         return
     if event.type == "conversation.item.input_audio_transcription.completed":
-        print(f"[User] {event.text}")
+        print(f"[User] {event.text if not _ascii_logs() else '<transcript>'}")
     elif event.type == "response.audio_transcript.done":
-        print(f"[Guidebot] {event.text}")
+        print(f"[Guidebot] {event.text if not _ascii_logs() else '<response>'}")
     elif event.type == "session.open":
-        print("已连接 Qwen Realtime，可以开始说话（Ctrl+C 退出）")
+        print(_runtime_text("已连接 Qwen Realtime，可以开始说话（Ctrl+C 退出）", "Qwen Realtime connected. Press Ctrl+C to exit."))
     elif event.type in {"guidebot.session.awake", "guidebot.session.sleep"}:
         print(f"[Guidebot] {event.text}")
     elif event.type.startswith("guidebot.command."):
@@ -245,7 +260,12 @@ async def run_serve(args: argparse.Namespace) -> None:
         )
         tasks.append(asyncio.create_task(voice_runtime.run(), name="voice-qwen"))
 
-    print("Guidebot 常驻服务已启动。语音等待唤醒；传感器异常会自动通知。Ctrl+C 退出。")
+    print(
+        _runtime_text(
+            "Guidebot 常驻服务已启动。语音等待唤醒；传感器异常会自动通知。Ctrl+C 退出。",
+            "Guidebot resident service started. Voice waits for wake phrase; sensor alerts are automatic. Ctrl+C exits.",
+        )
+    )
     try:
         await asyncio.gather(*tasks)
     finally:

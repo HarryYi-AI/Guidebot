@@ -156,15 +156,46 @@ guidebot serve \
   --voice Tina \
   --input-device plughw:2,0 \
   --output-device default \
+  --connect-retries 5 \
+  --input-gate-rms 800 \
+  --vad-threshold 0.8 \
+  --vad-silence-ms 800 \
   --scene-command 'python3 /home/pi/project_demo/guidebot_adapters/scene_once.py' \
   --scene-interval 10 \
-  --health-stream-command 'cd ~/Guidebot && GUIDEBOT_EVENT_JSONL=1 GUIDEBOT_DISABLE_LOCAL_REMINDER_AUDIO=1 python3 health_guardian/sitpose.py' \
-  --health-stream-command 'cd ~/Guidebot && GUIDEBOT_EVENT_JSONL=1 GUIDEBOT_DISABLE_LOCAL_REMINDER_AUDIO=1 python3 health_guardian/detface.py' \
+  --health-stream-command 'cd ~/Guidebot && env GUIDEBOT_EVENT_JSONL=1 GUIDEBOT_DISABLE_LOCAL_REMINDER_AUDIO=1 GUIDEBOT_HEADLESS=1 GUIDEBOT_HEALTH_HEARTBEAT_SECONDS=10 python3 health_guardian/sitpose.py' \
+  --health-stream-command 'cd ~/Guidebot && env GUIDEBOT_EVENT_JSONL=1 GUIDEBOT_DISABLE_LOCAL_REMINDER_AUDIO=1 GUIDEBOT_HEADLESS=1 GUIDEBOT_HEALTH_HEARTBEAT_SECONDS=10 python3 health_guardian/detface.py' \
   --ultrasonic-stream-command 'python3 /home/pi/project_demo/guidebot_adapters/ultrasonic_stream.py'
 ```
 
 `--health-stream-command` 可以重复传多次；上例同时接入久坐检测和面部疲劳检测。检测脚本在
 `GUIDEBOT_EVENT_JSONL=1` 下只把提醒事件输出为 JSONL，由 Guidebot 统一决定是否播报和如何抢占。
+不要把 `GUIDEBOT_EVENT_JSONL=1 ... python3 ...` 拆成多行放在同一个引号里；如果需要换行，请让
+整段 command 保持在单引号内的一行。
+
+如果终端中文乱码，先不要强制 UTF-8，使用系统 locale：
+
+```bash
+unset PYTHONIOENCODING
+unset PYTHONUTF8
+export GUIDEBOT_ASCII_LOGS=1
+```
+
+`GUIDEBOT_ASCII_LOGS=1` 会让 Guidebot 自己的系统提示使用英文 ASCII，避免运行日志乱码；模型回复
+如果仍乱码，说明 SSH/VNC 客户端和树莓派 locale 不一致。确认：
+
+```bash
+locale
+python3 - <<'PY'
+import locale, sys
+print(locale.getpreferredencoding(False))
+print(sys.stdout.encoding)
+PY
+```
+
+语音 realtime 使用 `DASHSCOPE_API_KEY` 环境变量。场景异常检测示例 `scene_once.py` 复用原厂
+`/home/pi/project_demo/09.AI_Big_Model/SceneDescription/tongyi_api_image.py`，因此还依赖树莓派本地
+`/home/pi/project_demo/09.AI_Big_Model/API_KEY.py` 里的通义视觉 key；这个文件不要提交到 Guidebot
+仓库。后续可以把场景 adapter 改为直接读取 `DASHSCOPE_API_KEY`，统一密钥来源。
 
 ## Voice Module
 
