@@ -1,0 +1,32 @@
+camera:
+  camera_id: 0
+  frame_width: 640
+  frame_height: 480
+  show_window: true
+  fourcc: MJPG
+
+face:
+  max_num_faces: 1
+  min_detection_confidence: 0.5
+  min_tracking_confidence: 0.5
+  refine_landmarks: true
+
+fatigue:
+  detect_interval: 0.1
+  window_seconds: 60
+  eye_closed_ear: 0.21
+  eye_closed_seconds: 1.5
+  perclos_threshold: 0.35
+  yawn_mar: 0.65
+  yawn_seconds: 1.0
+  head_down_pitch: 18.0
+  head_down_seconds: 2.0
+  fatigue_score_threshold: 3
+  remind_cooldown_seconds: 10
+
+voice:
+  mode: audio_file
+  audio_file: sounds/tiredremind.wav
+  max_seconds: 20
+  remind_texts:
+    - 主人，你看起来很疲劳，早点去休息吧。

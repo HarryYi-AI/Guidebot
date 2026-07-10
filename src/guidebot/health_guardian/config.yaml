@@ -22,15 +22,15 @@ roi:
 
 sitting:
   sit_limit_seconds: 60
-  reset_seconds: 20
+  reset_seconds: 30
   remind_cooldown_seconds: 60
   detect_interval: 0.5
   smooth_window: 10
   sitting_ratio_threshold: 0.6
 
 voice:
-  mode: system_tts
-  audio_file: sounds/remind.wav
+  mode: audio_file
+  audio_file: sounds/sitremind.wav
   max_seconds: 20
   remind_texts:
-    - 主人，你已经长时间坐着了，该起来活动一下了。
+    - 主人，你已经长时间坐着了，请起来活动一下。
