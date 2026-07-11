@@ -19,9 +19,14 @@ class IntentAnalyzer:
 
         if event.event_type.startswith("scene."):
             if "fire" in label or "smoke" in label or "明火" in label or "烟" in label:
-                return self._intent(IntentType.SAFETY_FIRE_ALERT, event, 100, {"label": label})
+                return self._intent(IntentType.SAFETY_FIRE_ALERT, event, 100, payload)
             if "fall" in label or "摔倒" in label or "倒地" in label:
-                return self._intent(IntentType.SAFETY_FALL_ALERT, event, 100, {"label": label})
+                return self._intent(IntentType.SAFETY_FALL_ALERT, event, 100, payload)
+            if payload.get("abnormal") is True or str(payload.get("risk_level", "")).lower() in {
+                "medium",
+                "high",
+            }:
+                return self._intent(IntentType.SAFETY_SCENE_ALERT, event, 90, payload)
 
         if event.event_type.startswith("health."):
             if "sedentary" in label or payload.get("sedentary") is True:

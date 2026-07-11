@@ -45,9 +45,16 @@ class SceneMonitorModule:
 
     def handle_task(self, task: Task) -> dict[str, Any]:
         if task.action == "fire_alert":
-            message = "检测到疑似明火或烟雾，请立即检查环境。"
+            message = str(task.payload.get("feedback") or "检测到疑似明火或烟雾，请立即检查环境。")
         elif task.action == "fall_alert":
-            message = "检测到疑似人员摔倒，请及时确认。"
+            message = str(task.payload.get("feedback") or "检测到疑似人员摔倒，请及时确认。")
+        elif task.action == "scene_alert":
+            message = str(
+                task.payload.get("feedback")
+                or task.payload.get("summary")
+                or task.payload.get("reason")
+                or "检测到场景异常，请及时查看。"
+            )
         else:
             message = str(task.payload.get("summary", "场景已记录。"))
         return {"module": self.name, "action": task.action, "message": message}

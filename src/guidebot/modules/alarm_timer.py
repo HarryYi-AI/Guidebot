@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
 from typing import Any
 
 from guidebot.events import Event, EventBus
@@ -42,9 +44,21 @@ class AlarmTimerModule:
                 "message": f"已记录提醒：{alarm_time}",
             }
         if task.action == "remind":
+            command = os.getenv("GUIDEBOT_ALARM_COMMAND", "").strip()
+            command_started = False
+            if command:
+                subprocess.Popen(  # noqa: S602 - explicit opt-in local hardware command.
+                    command,
+                    shell=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                command_started = True
             return {
                 "module": self.name,
                 "action": task.action,
                 "message": str(task.payload.get("text", "时间到了。")),
+                "external_command_started": command_started,
             }
         return {"module": self.name, "action": task.action, "message": "闹钟任务已处理。"}

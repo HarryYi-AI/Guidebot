@@ -96,6 +96,7 @@ Raw Input / Sensor / Timer / Voice
   → EventBus
   → IntentAnalyzer
   → Scheduler
+  → RuntimeSkillRegistry
   → Module Executor
   → SafetyGate
   → Device / TTS / Message
@@ -105,6 +106,16 @@ Raw Input / Sensor / Timer / Voice
 规则意图分析器不会依赖 LLM 决定物理动作。明火、摔倒、超声波障碍等高优先级意图可以抢占聊天、
 TTS、移动和健康提醒；久坐、普通场景播报和温控建议有 cooldown，避免反复打扰。温控当前只做
 状态和建议，不真实控制空调，未来可接红外或 Home Assistant adapter。
+
+运行时功能统一注册在 `src/guidebot/runtime_skills.py`：
+
+- `IntentType` 表示用户/传感器意图；
+- `RuntimeSkill` 表示可调度能力，例如 `alarm.remind`、`scene.abnormal_alert`、`health.sedentary`；
+- `Scheduler` 只把 Intent 解析成 RuntimeSkill 对应的 `Task(module.action)`；
+- 真正执行仍在模块边界内完成，物理动作继续经过 `SafetyGate`，LLM 不直接控制设备。
+
+后续新增“听音乐、闹钟、健康监测、宠物互动、Home Assistant”等能力时，优先新增一个模块或 adapter，
+然后在 `build_default_runtime_skills()` 里注册对应 skill。
 
 课程源码和随车示例不进入 Guidebot 仓库；树莓派已有：
 
@@ -149,6 +160,24 @@ cp examples/raspberry_pi_adapters/*.py /home/pi/project_demo/guidebot_adapters/
 chmod +x /home/pi/project_demo/guidebot_adapters/*.py
 ```
 
+原来散落的硬件脚本已收口为 adapter：
+
+- `src/guidebot/devices/alarm.py` → `examples/raspberry_pi_adapters/spin_alarm_ultrasonic_stop.py`
+- `src/guidebot/devices/scene.py` → `examples/raspberry_pi_adapters/legacy_scene_monitor.py`
+- `src/guidebot/devices/test.py` 是旧图片测试脚本，不进入 runtime。
+
+如果要让到点闹钟触发“小范围旋转 + 蜂鸣 + 超声波挡停”，设置：
+
+```bash
+export GUIDEBOT_ALARM_COMMAND='python3 /home/pi/project_demo/guidebot_adapters/spin_alarm_ultrasonic_stop.py --now --speed 25 --run-duration 180'
+```
+
+更完整的场景异常 adapter 可用：
+
+```bash
+python3 /home/pi/project_demo/guidebot_adapters/legacy_scene_monitor.py --guidebot-json --no-speak
+```
+
 对应常驻命令示例：
 
 ```bash
@@ -160,7 +189,7 @@ guidebot serve \
   --input-gate-rms 800 \
   --vad-threshold 0.8 \
   --vad-silence-ms 800 \
-  --scene-command 'python3 /home/pi/project_demo/guidebot_adapters/scene_once.py' \
+  --scene-command 'python3 /home/pi/project_demo/guidebot_adapters/legacy_scene_monitor.py --guidebot-json --no-speak' \
   --scene-interval 10 \
   --health-stream-command 'cd ~/Guidebot && env GUIDEBOT_EVENT_JSONL=1 GUIDEBOT_DISABLE_LOCAL_REMINDER_AUDIO=1 GUIDEBOT_HEADLESS=1 GUIDEBOT_HEALTH_HEARTBEAT_SECONDS=10 python3 health_guardian/sitpose.py' \
   --health-stream-command 'cd ~/Guidebot && env GUIDEBOT_EVENT_JSONL=1 GUIDEBOT_DISABLE_LOCAL_REMINDER_AUDIO=1 GUIDEBOT_HEADLESS=1 GUIDEBOT_HEALTH_HEARTBEAT_SECONDS=10 python3 health_guardian/detface.py' \

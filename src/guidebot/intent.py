@@ -14,6 +14,7 @@ class IntentType(str, Enum):
     SET_ALARM = "set_alarm"
     CANCEL_ALARM = "cancel_alarm"
     TIMER_REMINDER = "timer_reminder"
+    SAFETY_SCENE_ALERT = "safety_scene_alert"
     SAFETY_FIRE_ALERT = "safety_fire_alert"
     SAFETY_FALL_ALERT = "safety_fall_alert"
     HEALTH_SEDENTARY = "health_sedentary"

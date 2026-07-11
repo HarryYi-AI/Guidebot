@@ -19,6 +19,7 @@ from .modules import (
 )
 from .safety import RuntimeSafetyState, SafetyGate, SafetyResult
 from .scheduler import Scheduler, Task
+from .runtime_skills import RuntimeSkillRegistry, build_default_runtime_skills
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,10 +39,12 @@ class GuidebotRuntime:
         *,
         logger: RuntimeLogger | None = None,
         safety_state: RuntimeSafetyState | None = None,
+        skill_registry: RuntimeSkillRegistry | None = None,
     ) -> None:
         self.event_bus = EventBus()
         self.analyzer = IntentAnalyzer()
-        self.scheduler = Scheduler()
+        self.skill_registry = skill_registry or build_default_runtime_skills()
+        self.scheduler = Scheduler(skill_registry=self.skill_registry)
         self.safety = SafetyGate()
         self.safety_state = safety_state or RuntimeSafetyState()
         self.logger = logger
