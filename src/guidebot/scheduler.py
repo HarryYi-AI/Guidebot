@@ -48,6 +48,8 @@ class Scheduler:
 
     def schedule(self, intent: Intent, now: datetime | None = None) -> Task | None:
         now = now or utc_now()
+        if intent.intent_type is IntentType.UNKNOWN and intent.priority <= 0:
+            return None
         cooldown = self.cooldowns.get(intent.intent_type)
         last = self._last_scheduled.get(intent.intent_type)
         if cooldown is not None and last is not None and now - last < cooldown:

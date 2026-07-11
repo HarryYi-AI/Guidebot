@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Protocol, Sequence
+from typing import Any, Protocol
 
 from guidebot.agent import AdaptiveAgent, Agent
 from guidebot.models import Action, ActionKind, Decision, Event, Reading, RobotState
@@ -42,9 +43,10 @@ class ScriptedPlannerClient:
 class EmbodiedPlannerAgent:
     """LLM-facing planner that still lets Guidebot own safety and execution.
 
-    The planner can propose physical actions, but it cannot execute them. The
-    returned :class:`Decision` is still evaluated by ``GuidebotHub`` and the
-    deterministic ``SafetyPolicy`` before any device adapter receives it.
+    The planner can propose physical actions such as HVAC changes, speech, or
+    notifications, but it cannot execute them. ``GuidebotHub`` still evaluates
+    the returned ``Decision`` with deterministic ``SafetyPolicy`` before any
+    device adapter receives it.
     """
 
     def __init__(
@@ -74,19 +76,14 @@ class EmbodiedPlannerAgent:
                 f"embodied planner unavailable: {type(error).__name__}: {error}; "
                 f"fallback={fallback_decision.rationale}"
             )
-            return Decision(
-                fallback_decision.actions,
-                fallback_decision.response,
-                rationale,
-            )
+            return Decision(fallback_decision.actions, fallback_decision.response, rationale)
 
     def build_prompt(self, event: Event, state: RobotState) -> str:
         payload = {
             "role": "Guidebot EmbodiedPlannerAgent",
             "objective": (
-                "Convert the current user/environment event into a structured "
-                "Decision. Propose actions only; local SafetyPolicy performs "
-                "final validation and execution."
+                "Convert the current user/environment event into a structured Decision. "
+                "Propose actions only; local SafetyPolicy performs final validation."
             ),
             "output_schema": {
                 "response": "short Chinese user-facing response or null",
@@ -120,17 +117,13 @@ class EmbodiedPlannerAgent:
         if not isinstance(action_items, Sequence) or isinstance(action_items, (str, bytes)):
             raise PlannerParseError("actions must be a JSON array")
 
-        actions: list[Action] = []
+        actions = []
         for item in action_items:
             if not isinstance(item, Mapping):
                 raise PlannerParseError("each action must be a JSON object")
             actions.append(cls._parse_action(item, rationale))
 
-        return Decision(
-            tuple(actions),
-            None if response is None else str(response),
-            rationale,
-        )
+        return Decision(tuple(actions), None if response is None else str(response), rationale)
 
     @staticmethod
     def _parse_action(item: Mapping[str, Any], fallback_reason: str) -> Action:

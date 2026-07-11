@@ -32,3 +32,21 @@ def test_unknown_text_routes_to_chat() -> None:
     intent = IntentAnalyzer().analyze(Event("user.text", "test", {"text": "讲个故事"}))
 
     assert intent.intent_type is IntentType.CHAT
+
+
+def test_climate_sensor_routes_to_comfort_skill() -> None:
+    intent = IntentAnalyzer().analyze(
+        Event("climate.detected", "test", {"temperature_c": 29.2, "humidity": 76})
+    )
+
+    assert intent.intent_type is IntentType.CLIMATE_COMFORT
+    assert intent.priority == 40
+
+
+def test_ac_left_on_routes_to_alert() -> None:
+    intent = IntentAnalyzer().analyze(
+        Event("climate.detected", "test", {"ac_on": True, "occupied": False})
+    )
+
+    assert intent.intent_type is IntentType.AC_LEFT_ON_ALERT
+    assert intent.priority == 70

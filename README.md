@@ -40,6 +40,7 @@ guidebot health check --sedentary --json
 guidebot alarm set --time "07:00" --json
 guidebot schedule demo --scenario fire --json
 guidebot climate status --json
+guidebot climate check --temperature-c 29 --humidity 75 --json
 pytest
 ```
 
@@ -97,15 +98,17 @@ Raw Input / Sensor / Timer / Voice
   → IntentAnalyzer
   → Scheduler
   → RuntimeSkillRegistry
-  → Module Executor
   → SafetyGate
+  → Module Executor
   → Device / TTS / Message
   → logs/*.jsonl
 ```
 
 规则意图分析器不会依赖 LLM 决定物理动作。明火、摔倒、超声波障碍等高优先级意图可以抢占聊天、
-TTS、移动和健康提醒；久坐、普通场景播报和温控建议有 cooldown，避免反复打扰。温控当前只做
-状态和建议，不真实控制空调，未来可接红外或 Home Assistant adapter。
+TTS、移动和健康提醒；久坐、普通场景播报和温控建议有 cooldown，避免反复打扰。温控也被视为
+一种环境场景检测：`climate.detected` 事件携带温度、湿度、空调状态和人在/离开状态，异常时路由
+到 `climate.comfort` 或 `climate.ac_left_on` skill。当前只做状态和建议，不真实控制空调，未来可接
+红外或 Home Assistant adapter。
 
 运行时功能统一注册在 `src/guidebot/runtime_skills.py`：
 
@@ -115,7 +118,23 @@ TTS、移动和健康提醒；久坐、普通场景播报和温控建议有 cool
 - 真正执行仍在模块边界内完成，物理动作继续经过 `SafetyGate`，LLM 不直接控制设备。
 
 后续新增“听音乐、闹钟、健康监测、宠物互动、Home Assistant”等能力时，优先新增一个模块或 adapter，
-然后在 `build_default_runtime_skills()` 里注册对应 skill。
+然后在 `build_default_runtime_skills()` 里注册对应 skill。可选的 agent 角色放在
+`src/guidebot/agents/`：例如 `EmbodiedPlannerAgent` 只能提出结构化动作建议，不能绕过 SafetyGate；
+`SkillEvolutionAgent` 只处理执行后的失败归因、反思和候选技能演化。
+
+代码分层保持为：
+
+```text
+src/guidebot/
+  runtime.py / service.py       # 常驻 Event → Intent → Skill → Safety → Module 链路
+  runtime_skills.py             # 运行时能力注册表，新增功能优先改这里
+  modules/                      # chat / scene / health / alarm / mobility / climate 执行边界
+  voice/                        # Qwen realtime、VAD、插话、音量命令
+  agents/                       # 可选 planner / evolution agent 角色，不直接碰硬件
+  simulation/                   # 房间动力学、仿真评测、verifier
+examples/raspberry_pi_adapters/ # 只放树莓派外部硬件薄适配器
+health_guardian/                # 久坐/疲劳检测原型，通过 --health-stream-command 接入
+```
 
 课程源码和随车示例不进入 Guidebot 仓库；树莓派已有：
 
@@ -150,6 +169,12 @@ TTS、移动和健康提醒；久坐、普通场景播报和温控建议有 cool
 
 ```json
 {"obstacle": true, "distance_mm": 120}
+```
+
+温湿度/空调状态脚本也可以输出 JSON：
+
+```json
+{"temperature_c": 29.2, "humidity": 76, "ac_on": true, "occupied": false}
 ```
 
 Guidebot 仓库提供薄适配器样例，可复制到树莓派：
@@ -196,6 +221,12 @@ guidebot serve \
   --ultrasonic-stream-command 'python3 /home/pi/project_demo/guidebot_adapters/ultrasonic_stream.py'
 ```
 
+如果后续接入 ESP32/Home Assistant 温湿度脚本，让脚本输出上面的温控 JSON，然后追加：
+
+```bash
+--climate-command 'python3 /home/pi/project_demo/guidebot_adapters/your_climate_adapter.py'
+```
+
 `--health-stream-command` 可以重复传多次；上例同时接入久坐检测和面部疲劳检测。检测脚本在
 `GUIDEBOT_EVENT_JSONL=1` 下只把提醒事件输出为 JSONL，由 Guidebot 统一决定是否播报和如何抢占。
 不要把 `GUIDEBOT_EVENT_JSONL=1 ... python3 ...` 拆成多行放在同一个引号里；如果需要换行，请让
@@ -221,10 +252,9 @@ print(sys.stdout.encoding)
 PY
 ```
 
-语音 realtime 使用 `DASHSCOPE_API_KEY` 环境变量。场景异常检测示例 `scene_once.py` 复用原厂
-`/home/pi/project_demo/09.AI_Big_Model/SceneDescription/tongyi_api_image.py`，因此还依赖树莓派本地
-`/home/pi/project_demo/09.AI_Big_Model/API_KEY.py` 里的通义视觉 key；这个文件不要提交到 Guidebot
-仓库。后续可以把场景 adapter 改为直接读取 `DASHSCOPE_API_KEY`，统一密钥来源。
+语音 realtime 使用 `DASHSCOPE_API_KEY` 环境变量。场景异常 adapter 复用树莓派本地
+`/home/pi/project_demo/09.AI_Big_Model/API_KEY.py` 或 adapter 旁的 `local_config.py` 读取视觉 key；
+这些密钥文件不要提交到 Guidebot 仓库。
 
 ## Voice Module
 

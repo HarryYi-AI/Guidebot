@@ -57,3 +57,22 @@ def test_alarm_reminder_uses_runtime_skill_id() -> None:
 
     assert trace.task is not None
     assert trace.task.skill_id == "alarm.remind"
+
+
+def test_normal_climate_observation_does_not_schedule_chatter() -> None:
+    runtime = GuidebotRuntime()
+
+    trace = runtime.ingest(Event("climate.detected", "sensor", {"temperature_c": 24, "humidity": 50}))
+
+    assert trace.task is None
+
+
+def test_uncomfortable_climate_routes_to_climate_skill() -> None:
+    runtime = GuidebotRuntime()
+
+    trace = runtime.ingest(Event("climate.detected", "sensor", {"temperature_c": 29.5}))
+
+    assert trace.task is not None
+    assert trace.task.skill_id == "climate.comfort"
+    assert trace.action is not None
+    assert trace.action["real_control_enabled"] is False

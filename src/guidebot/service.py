@@ -330,6 +330,14 @@ def _event_from_payload(poller: CommandPoller, payload: dict[str, Any]) -> Event
             confidence=float(payload.get("confidence", 0.9)),
             priority_hint=int(payload.get("priority_hint", 50)),
         )
+    if poller.kind == "climate":
+        return Event(
+            "climate.detected",
+            poller.name,
+            dict(payload),
+            confidence=float(payload.get("confidence", 0.9)),
+            priority_hint=int(payload.get("priority_hint", 40)),
+        )
     if poller.kind == "ultrasonic":
         return Event(
             "ultrasonic.obstacle",

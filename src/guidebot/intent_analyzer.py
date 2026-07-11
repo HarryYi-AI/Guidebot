@@ -34,6 +34,12 @@ class IntentAnalyzer:
             if "fatigue" in label or payload.get("fatigue") is True:
                 return self._intent(IntentType.HEALTH_FATIGUE, event, 45, payload)
 
+        if event.event_type.startswith("climate."):
+            if payload.get("ac_on") is True and payload.get("occupied") is False:
+                return self._intent(IntentType.AC_LEFT_ON_ALERT, event, 70, payload)
+            if _climate_uncomfortable(payload):
+                return self._intent(IntentType.CLIMATE_COMFORT, event, 40, payload)
+
         if event.event_type == "alarm.triggered":
             return self._intent(IntentType.TIMER_REMINDER, event, 80, payload)
 
@@ -109,4 +115,23 @@ def _extract_time_hint(text: str) -> str | None:
         return f"+{match.group(1)}h"
     if "明早" in text or "明天早上" in text:
         return "tomorrow_morning"
+    return None
+
+
+def _climate_uncomfortable(payload: dict) -> bool:
+    temperature = _number(payload.get("temperature_c", payload.get("temperature")))
+    humidity = _number(payload.get("humidity", payload.get("humidity_pct")))
+    if temperature is not None and (temperature > 27.0 or temperature < 18.0):
+        return True
+    return humidity is not None and humidity > 70.0
+
+
+def _number(value: object) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.strip())
+        except ValueError:
+            return None
     return None

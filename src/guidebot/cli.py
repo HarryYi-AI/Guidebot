@@ -147,6 +147,15 @@ async def run_serve(args: argparse.Namespace) -> None:
         command_pollers.append(
             CommandPoller("health_command", args.health_command, args.health_interval, "health")
         )
+    if args.climate_command:
+        command_pollers.append(
+            CommandPoller(
+                "climate_command",
+                args.climate_command,
+                args.climate_interval,
+                "climate",
+            )
+        )
     if args.ultrasonic_command:
         command_pollers.append(
             CommandPoller(
@@ -161,6 +170,8 @@ async def run_serve(args: argparse.Namespace) -> None:
         command_streams.append(CommandStream(f"scene_stream_{index}", command, "scene"))
     for index, command in enumerate(args.health_stream_command or (), start=1):
         command_streams.append(CommandStream(f"health_stream_{index}", command, "health"))
+    for index, command in enumerate(args.climate_stream_command or (), start=1):
+        command_streams.append(CommandStream(f"climate_stream_{index}", command, "climate"))
     for index, command in enumerate(args.ultrasonic_stream_command or (), start=1):
         command_streams.append(
             CommandStream(f"ultrasonic_stream_{index}", command, "ultrasonic")
@@ -429,6 +440,19 @@ def run_climate_status(args: argparse.Namespace) -> None:
         )
 
 
+def run_climate_check(args: argparse.Namespace) -> None:
+    runtime = _runtime()
+    event = runtime.modules["climate_control"].observe(
+        temperature_c=args.temperature_c,
+        humidity=args.humidity,
+        ac_on=args.ac_on,
+        occupied=args.occupied,
+        confidence=args.confidence,
+    )
+    trace = runtime.ingest(event)
+    _print_trace(trace, as_json=args.json)
+
+
 def add_qwen_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--voice", default="Tina")
     parser.add_argument("--input-device")
@@ -518,6 +542,9 @@ def main(argv: list[str] | None = None) -> None:
     serve.add_argument("--health-command")
     serve.add_argument("--health-stream-command", action="append")
     serve.add_argument("--health-interval", type=float, default=30.0)
+    serve.add_argument("--climate-command")
+    serve.add_argument("--climate-stream-command", action="append")
+    serve.add_argument("--climate-interval", type=float, default=30.0)
     serve.add_argument("--ultrasonic-command")
     serve.add_argument("--ultrasonic-stream-command", action="append")
     serve.add_argument("--ultrasonic-interval", type=float, default=0.3)
@@ -567,6 +594,15 @@ def main(argv: list[str] | None = None) -> None:
     climate_status = climate_sub.add_parser("status")
     climate_status.add_argument("--json", action="store_true")
     climate_status.set_defaults(handler=run_climate_status)
+    climate_check = climate_sub.add_parser("check")
+    climate_check.add_argument("--temperature-c", type=float)
+    climate_check.add_argument("--humidity", type=float)
+    climate_check.add_argument("--ac-on", action="store_true", default=None)
+    climate_check.add_argument("--occupied", dest="occupied", action="store_true", default=None)
+    climate_check.add_argument("--unoccupied", dest="occupied", action="store_false")
+    climate_check.add_argument("--confidence", type=float, default=0.9)
+    climate_check.add_argument("--json", action="store_true")
+    climate_check.set_defaults(handler=run_climate_check)
     evolve = subparsers.add_parser("evolve")
     evolve.add_argument("--dry-run", action="store_true", required=True)
     args = parser.parse_args(argv)

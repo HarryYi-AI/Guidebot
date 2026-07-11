@@ -11,6 +11,12 @@ They are intentionally thin wrappers. The original Yahboom/course source stays
 under `/home/pi/project_demo`; Guidebot only consumes the JSON events printed by
 these adapters.
 
+Current adapters:
+
+- `legacy_scene_monitor.py`: camera → DashScope-compatible VLM → scene JSON.
+- `ultrasonic_stream.py`: Yahboom ultrasonic sensor → JSONL obstacle stream.
+- `spin_alarm_ultrasonic_stop.py`: opt-in hardware alarm action used through `GUIDEBOT_ALARM_COMMAND`.
+
 Useful commands:
 
 ```bash
