@@ -76,6 +76,7 @@ class GuidebotRuntime:
             safety = self.safety.evaluate_task(task, self.safety_state)
             if safety.allowed:
                 action = self.execute(task)
+                self._update_safety_state_after(task)
                 if task.priority >= 100 and not task.interruptible:
                     self.safety_state.active_safety_alert = True
             else:
@@ -93,6 +94,10 @@ class GuidebotRuntime:
     def execute(self, task: Task) -> dict[str, Any]:
         module = self.modules[task.target_module]
         return module.handle_task(task)
+
+    def _update_safety_state_after(self, task: Task) -> None:
+        if task.target_module == "climate_control" and task.payload.get("target_c") is not None:
+            self.safety_state.last_climate_action_at = task.created_at
 
     def _log(self, trace: RuntimeTrace) -> None:
         if self.logger is None:

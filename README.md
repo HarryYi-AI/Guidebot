@@ -8,7 +8,7 @@ Guidebot 是一个以自适应 agent 为总枢纽的桌面宠物机器人项目�
 调度器和安全门决定是否执行模块动作：
 
 - 事件总线与统一传感器/动作模型
-- EventBus → IntentAnalyzer → Scheduler → SafetyGate → Modules 的统一 runtime
+- EventBus → IntentAnalyzer → Scheduler → RuntimeSkillRegistry → SafetyGate → Modules 的统一 runtime
 - 语音、场景、健康、闹钟、移动、温控 mock 的轻量模块边界
 - 可替换的硬件适配器和内存模拟器
 - 可替换的 Agent 接口与基础温控、触摸、空气质量行为

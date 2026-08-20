@@ -56,11 +56,12 @@ class IntentAnalyzer:
             return self._intent(IntentType.MOBILITY_STOP, event, 100, {"text": text})
 
         if _contains_any(normalized, ("闹钟", "提醒", "秒后", "分钟后", "小时后", "明早", "明天早上")):
+            time_hint = str(event.payload.get("time") or "").strip() or _extract_time_hint(text)
             return self._intent(
                 IntentType.SET_ALARM,
                 event,
                 60,
-                {"text": text, "time": _extract_time_hint(text)},
+                {"text": text, "time": time_hint},
                 requires_confirmation=True,
             )
 
@@ -104,6 +105,11 @@ def _extract_time_hint(text: str) -> str | None:
     match = re.search(r"(\d{1,2}:\d{2})", text)
     if match:
         return match.group(1)
+    match = re.search(r"\+(\d+)\s*([smh秒分时])", text, flags=re.IGNORECASE)
+    if match:
+        unit = match.group(2).lower()
+        suffix = {"秒": "s", "分": "m", "时": "h"}.get(unit, unit)
+        return f"+{match.group(1)}{suffix}"
     match = re.search(r"(\d+)\s*分钟后", text)
     if match:
         return f"+{match.group(1)}m"

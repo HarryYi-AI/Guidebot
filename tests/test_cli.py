@@ -14,6 +14,16 @@ def test_intent_parse_alarm_json(capsys) -> None:
     assert payload["intent_type"] == "set_alarm"
 
 
+def test_alarm_set_preserves_machine_time_hint(capsys, tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    main(["alarm", "set", "--time", "+5s", "--json"])
+
+    payload = _json_from_stdout(capsys)
+    assert payload["intent"]["slots"]["time"] == "+5s"
+    assert payload["action"]["time"] == "+5s"
+
+
 def test_scene_scan_fire_json(capsys, tmp_path, monkeypatch) -> None:
     monkeypatch.chdir(tmp_path)
 

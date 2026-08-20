@@ -28,6 +28,13 @@ def test_user_text_sets_alarm() -> None:
     assert intent.requires_confirmation is True
 
 
+def test_alarm_text_extracts_machine_relative_time() -> None:
+    intent = IntentAnalyzer().analyze(Event("user.text", "test", {"text": "设置闹钟 +5s"}))
+
+    assert intent.intent_type is IntentType.SET_ALARM
+    assert intent.slots["time"] == "+5s"
+
+
 def test_unknown_text_routes_to_chat() -> None:
     intent = IntentAnalyzer().analyze(Event("user.text", "test", {"text": "讲个故事"}))
 

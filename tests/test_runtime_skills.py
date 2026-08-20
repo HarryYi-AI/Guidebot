@@ -76,3 +76,25 @@ def test_uncomfortable_climate_routes_to_climate_skill() -> None:
     assert trace.task.skill_id == "climate.comfort"
     assert trace.action is not None
     assert trace.action["real_control_enabled"] is False
+
+
+def test_runtime_records_real_climate_action_time_for_safety_frequency() -> None:
+    registry = RuntimeSkillRegistry(
+        (
+            RuntimeSkill(
+                "test.climate.set_target",
+                IntentType.CLIMATE_COMFORT,
+                "climate_control",
+                "set_target",
+                "test real climate action",
+            ),
+        )
+    )
+    runtime = GuidebotRuntime(skill_registry=registry)
+
+    trace = runtime.ingest(
+        Event("climate.detected", "sensor", {"temperature_c": 29.5, "target_c": 25})
+    )
+
+    assert trace.task is not None
+    assert runtime.safety_state.last_climate_action_at == trace.task.created_at

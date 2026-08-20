@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import signal
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -139,6 +140,9 @@ class GuidebotService:
             await asyncio.gather(*self._tasks, return_exceptions=True)
         if self._alarm_tasks:
             await asyncio.gather(*self._alarm_tasks, return_exceptions=True)
+        # Give asyncio subprocess pipe transports one loop tick to deliver
+        # connection_lost callbacks before pytest closes the test event loop.
+        await asyncio.sleep(0)
         self.runtime.stop()
 
     async def _event_loop(self) -> None:
@@ -161,6 +165,7 @@ class GuidebotService:
                     stream.command,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.DEVNULL,
+                    start_new_session=True,
                 )
                 if process.stdout is not None:
                     while True:
@@ -170,15 +175,9 @@ class GuidebotService:
                         event = _event_from_json_line(stream, line)
                         if event is not None:
                             self.emit(event)
-                await process.wait()
+                await process.communicate()
             except asyncio.CancelledError:
-                if process is not None and process.returncode is None:
-                    process.terminate()
-                    try:
-                        await asyncio.wait_for(process.wait(), timeout=1.0)
-                    except asyncio.TimeoutError:
-                        process.kill()
-                        await process.wait()
+                await _terminate_process(process)
                 raise
             except OSError as exc:
                 self.emit(
@@ -253,17 +252,20 @@ class GuidebotService:
 
 
 async def _events_from_command(poller: CommandPoller) -> list[Event]:
+    process: asyncio.subprocess.Process | None = None
     try:
         process = await asyncio.create_subprocess_shell(
             poller.command,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
         )
         stdout, stderr = await asyncio.wait_for(
             process.communicate(),
             timeout=poller.timeout_seconds,
         )
     except (OSError, asyncio.TimeoutError) as exc:
+        await _terminate_process(process)
         return [
             Event(
                 "source.error",
@@ -300,6 +302,26 @@ async def _events_from_command(poller: CommandPoller) -> list[Event]:
         ]
     items = payload if isinstance(payload, list) else [payload]
     return [_event_from_payload(poller, item) for item in items if isinstance(item, dict)]
+
+
+async def _terminate_process(process: asyncio.subprocess.Process | None) -> None:
+    if process is None:
+        return
+    if process.returncode is None:
+        _signal_process_group(process, signal.SIGTERM)
+    try:
+        await asyncio.wait_for(process.communicate(), timeout=1.0)
+    except asyncio.TimeoutError:
+        _signal_process_group(process, signal.SIGKILL)
+        await process.communicate()
+    await asyncio.sleep(0)
+
+
+def _signal_process_group(process: asyncio.subprocess.Process, sig: signal.Signals) -> None:
+    try:
+        os.killpg(process.pid, sig)
+    except ProcessLookupError:
+        return
 
 
 def _event_from_payload(poller: CommandPoller, payload: dict[str, Any]) -> Event:
@@ -386,6 +408,7 @@ async def _run_notify_command(command: str, message: str) -> None:
         stdout=asyncio.subprocess.DEVNULL,
         stderr=asyncio.subprocess.DEVNULL,
         env=env,
+        start_new_session=True,
     )
     await process.communicate()
 
