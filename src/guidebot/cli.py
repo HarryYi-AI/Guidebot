@@ -14,8 +14,15 @@ from .events import Event
 from .hub import GuidebotHub
 from .intent_analyzer import IntentAnalyzer
 from .logbook import RuntimeLogger, to_jsonable
+from .model_serving import (
+    DeterministicBackend,
+    ModelRequest,
+    OpenAICompatibleBackend,
+    benchmark_backend,
+)
 from .models import Reading, SensorKind
 from .runtime import GuidebotRuntime, RuntimeTrace
+from .runtime_skills import build_default_runtime_skills
 from .self_evolving import build_default_library
 from .service import CommandPoller, CommandStream, GuidebotService, GuidebotServiceConfig
 from .simulation import SimulationSuite
@@ -453,6 +460,245 @@ def run_climate_check(args: argparse.Namespace) -> None:
     _print_trace(trace, as_json=args.json)
 
 
+def run_ad_demo(args: argparse.Namespace) -> None:
+    runtime = _runtime()
+    trace = runtime.ingest(
+        Event(
+            "user.text",
+            "cli",
+            {
+                "text": f"为 {args.product} 生成广告海报",
+                "product": args.product,
+                "audience": args.audience,
+                "goal": args.goal,
+            },
+        )
+    )
+    _print_trace(trace, as_json=args.json)
+
+
+def run_eval_suite(args: argparse.Namespace) -> None:
+    from .eval import RuntimeEvalRunner, core_eval_cases
+
+    report = RuntimeEvalRunner().run(core_eval_cases(), suite=args.suite)
+    if args.json:
+        _print_json(report)
+    else:
+        print(
+            f"eval suite={report.suite} score={report.score:.3f} "
+            f"passed={report.passed} failed={report.failed}"
+        )
+    if report.failed:
+        raise SystemExit(1)
+
+
+def run_eval_replay(args: argparse.Namespace) -> None:
+    from .eval import RuntimeEvalRunner
+
+    report = RuntimeEvalRunner().replay(args.path)
+    if args.json:
+        _print_json(report)
+    else:
+        print(
+            f"replay events={report.events} tasks={report.scheduled_tasks} "
+            f"blocked={report.blocked_tasks} intents={report.intent_counts}"
+        )
+
+
+def run_model_benchmark(args: argparse.Namespace) -> None:
+    if args.backend == "openai-compatible":
+        if not args.base_url or not args.model:
+            raise SystemExit("openai-compatible backend requires --base-url and --model")
+        backend = OpenAICompatibleBackend(
+            args.base_url,
+            args.model,
+            api_key=os.getenv(args.api_key_env),
+        )
+    else:
+        backend = DeterministicBackend()
+    report = benchmark_backend(
+        backend,
+        ModelRequest("benchmark", {"prompt": args.prompt}),
+        iterations=args.iterations,
+    )
+    if args.json:
+        _print_json(report)
+    else:
+        print(
+            f"backend={report.backend} rps={report.requests_per_second:.2f} "
+            f"p50={report.p50_latency_ms:.2f}ms p95={report.p95_latency_ms:.2f}ms "
+            f"errors={report.errors}"
+        )
+
+
+def run_tools_list(args: argparse.Namespace) -> None:
+    registry = build_default_runtime_skills()
+    skills = registry.all()
+    if args.json:
+        _print_json(skills)
+        return
+    for skill in skills:
+        permission = skill.contract.permission.value if skill.contract else "unspecified"
+        print(f"{skill.skill_id}: {skill.target_module}.{skill.action} [{permission}]")
+
+
+def run_tool_describe(args: argparse.Namespace) -> None:
+    try:
+        skill = build_default_runtime_skills().get(args.skill_id)
+    except KeyError as exc:
+        raise SystemExit(f"unknown skill: {args.skill_id}") from exc
+    _print_json(skill) if args.json else print(skill)
+
+
+def run_planner_demo(args: argparse.Namespace) -> None:
+    from .agents import EmbodiedPlannerAgent, ScriptedPlannerClient
+
+    if args.scenario == "approach":
+        response = {
+            "response": "我靠近一点看看。",
+            "rationale": "target is too far",
+            "steps": [
+                {
+                    "option": "move_closer",
+                    "parameters": {"distance_m": 0.4, "speed": 0.99},
+                }
+            ],
+        }
+    elif args.scenario == "hot":
+        response = {
+            "response": "我建议调到 25 度。",
+            "rationale": "room is hot",
+            "steps": [{"option": "turn_ac", "parameters": {"target_c": 25}}],
+        }
+    else:
+        response = {
+            "response": "你希望我具体做什么呢？",
+            "rationale": "request is ambiguous",
+            "steps": [
+                {"option": "ask_user", "parameters": {"question": "请告诉我更多信息。"}}
+            ],
+        }
+
+    async def demo() -> tuple[object, object]:
+        planner = EmbodiedPlannerAgent(ScriptedPlannerClient((response,)))
+        device = SimulatedDevice()
+        hub = GuidebotHub(device, agent=planner)
+        await hub.start()
+        if args.scenario == "approach":
+            hub.state.update(Reading(SensorKind.DISTANCE, 1.0, "m", "planner-demo"))
+        trajectory = await hub.say(args.text or "请根据当前情况行动")
+        await hub.stop()
+        assert planner.last_plan is not None
+        return planner.last_plan, trajectory
+
+    plan, trajectory = asyncio.run(demo())
+    payload = {"high_level_plan": plan, "trajectory": trajectory}
+    if args.json:
+        _print_json(payload)
+    else:
+        print(payload)
+
+
+def run_agent_demo(args: argparse.Namespace) -> None:
+    """Run deterministic, hardware-free end-to-end interview scenarios."""
+    runtime = GuidebotRuntime()
+    if args.scenario == "fire-confirmation":
+        session_id = "demo-fire"
+        events = (
+            Event(
+                "scene.detected",
+                "camera",
+                {"label": "fire", "summary": "远处存在疑似火光", "ground_truth": "fire"},
+                confidence=0.65,
+                session_id=session_id,
+            ),
+            Event(
+                "scene.detected",
+                "camera",
+                {"label": "fire", "summary": "二次观察确认明火", "ground_truth": "fire"},
+                confidence=0.93,
+                session_id=session_id,
+            ),
+        )
+    elif args.scenario == "sedentary":
+        events = (
+            Event(
+                "health.detected",
+                "posture_detector",
+                {"label": "sedentary", "sedentary": True},
+                confidence=0.92,
+                session_id="demo-health",
+            ),
+            Event(
+                "health.detected",
+                "posture_detector",
+                {"label": "sedentary", "sedentary": True},
+                confidence=0.94,
+                session_id="demo-health",
+            ),
+        )
+    else:
+        events = (
+            Event(
+                "user.text",
+                "voice_asr",
+                {"text": "设置闹钟 +1m", "time": "+1m"},
+                session_id="demo-alarm",
+            ),
+            Event(
+                "alarm.triggered",
+                "alarm_timer",
+                {"alarm_id": "demo", "text": "起床时间到了"},
+                session_id="demo-alarm",
+            ),
+            Event(
+                "mobility.command",
+                "alarm_timer",
+                {
+                    "action": "move_forward",
+                    "speed": 0.25,
+                    "obstacle": False,
+                    "confirmed": True,
+                },
+                session_id="demo-alarm",
+            ),
+            Event(
+                "ultrasonic.obstacle",
+                "ultrasonic",
+                {"obstacle": True, "distance_mm": 120},
+                priority_hint=100,
+                session_id="demo-alarm",
+            ),
+        )
+    traces = tuple(runtime.ingest(event) for event in events)
+    payload = {"scenario": args.scenario, "trajectories": traces}
+    if args.json:
+        _print_json(payload)
+    else:
+        for trace in traces:
+            selected = trace.trajectory.selected_skill if trace.trajectory else None
+            print(f"{selected or 'no_skill'} -> {trace.final_status}")
+
+
+def run_interview_demo(args: argparse.Namespace) -> None:
+    if args.scenario == "break-reminder":
+        from .runtime.demos import run_break_reminder_demo
+
+        result = asyncio.run(run_break_reminder_demo())
+    else:
+        from .replay import DEFAULT_FIRE_REPLAY, replay_fire_observations
+
+        result = asyncio.run(replay_fire_observations(DEFAULT_FIRE_REPLAY))
+    _print_json(result)
+
+
+def run_replay(args: argparse.Namespace) -> None:
+    from .replay import load_replay, replay_fire_observations
+
+    result = asyncio.run(replay_fire_observations(load_replay(args.path)))
+    _print_json(result)
+
+
 def add_qwen_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--voice", default="Tina")
     parser.add_argument("--input-device")
@@ -551,7 +797,8 @@ def main(argv: list[str] | None = None) -> None:
     serve.add_argument("--mock-sensors", action="store_true")
     chat = subparsers.add_parser("chat")
     add_qwen_args(chat)
-    subparsers.add_parser("demo")
+    demo_parser = subparsers.add_parser("demo")
+    demo_parser.add_argument("scenario", nargs="?", choices=("break-reminder", "fire-verify"))
     subparsers.add_parser("simulate")
     subparsers.add_parser("voice-demo")
     qwen = subparsers.add_parser("voice-qwen", help="run Qwen Omni realtime speech")
@@ -603,14 +850,76 @@ def main(argv: list[str] | None = None) -> None:
     climate_check.add_argument("--confidence", type=float, default=0.9)
     climate_check.add_argument("--json", action="store_true")
     climate_check.set_defaults(handler=run_climate_check)
+    ad = subparsers.add_parser("ad", help="advertising creative workflow demo")
+    ad_sub = ad.add_subparsers(dest="ad_command", required=True)
+    ad_demo = ad_sub.add_parser("demo")
+    ad_demo.add_argument("--product", default="Guidebot")
+    ad_demo.add_argument("--audience", default="年轻家庭")
+    ad_demo.add_argument("--goal", default="提升点击率")
+    ad_demo.add_argument("--json", action="store_true")
+    ad_demo.set_defaults(handler=run_ad_demo)
+    eval_parser = subparsers.add_parser("eval", help="run held-out evals or replay logs")
+    eval_sub = eval_parser.add_subparsers(dest="eval_command", required=True)
+    eval_run = eval_sub.add_parser("run")
+    eval_run.add_argument("--suite", choices=("core",), default="core")
+    eval_run.add_argument("--json", action="store_true")
+    eval_run.set_defaults(handler=run_eval_suite)
+    eval_replay = eval_sub.add_parser("replay")
+    eval_replay.add_argument("path")
+    eval_replay.add_argument("--json", action="store_true")
+    eval_replay.set_defaults(handler=run_eval_replay)
+    model = subparsers.add_parser("model", help="model-serving tools")
+    model_sub = model.add_subparsers(dest="model_command", required=True)
+    model_bench = model_sub.add_parser("benchmark")
+    model_bench.add_argument(
+        "--backend", choices=("deterministic", "openai-compatible"), default="deterministic"
+    )
+    model_bench.add_argument("--base-url")
+    model_bench.add_argument("--model")
+    model_bench.add_argument("--api-key-env", default="MODEL_API_KEY")
+    model_bench.add_argument("--iterations", type=int, default=10)
+    model_bench.add_argument("--prompt", default="用一句话介绍 Guidebot")
+    model_bench.add_argument("--json", action="store_true")
+    model_bench.set_defaults(handler=run_model_benchmark)
+    tools_parser = subparsers.add_parser("tools", help="inspect auditable runtime tool contracts")
+    tools_sub = tools_parser.add_subparsers(dest="tools_command", required=True)
+    tools_list = tools_sub.add_parser("list")
+    tools_list.add_argument("--json", action="store_true")
+    tools_list.set_defaults(handler=run_tools_list)
+    tools_describe = tools_sub.add_parser("describe")
+    tools_describe.add_argument("skill_id")
+    tools_describe.add_argument("--json", action="store_true")
+    tools_describe.set_defaults(handler=run_tool_describe)
+    planner_parser = subparsers.add_parser("planner", help="high-level skill planning demo")
+    planner_sub = planner_parser.add_subparsers(dest="planner_command", required=True)
+    planner_demo = planner_sub.add_parser("demo")
+    planner_demo.add_argument("--scenario", choices=("approach", "hot", "ambiguous"), default="approach")
+    planner_demo.add_argument("--text")
+    planner_demo.add_argument("--json", action="store_true")
+    planner_demo.set_defaults(handler=run_planner_demo)
+    agent_parser = subparsers.add_parser("agent", help="multimodal embodied-agent demos")
+    agent_sub = agent_parser.add_subparsers(dest="agent_command", required=True)
+    agent_demo = agent_sub.add_parser("demo")
+    agent_demo.add_argument(
+        "--scenario",
+        choices=("fire-confirmation", "sedentary", "alarm-obstacle"),
+        required=True,
+    )
+    agent_demo.add_argument("--json", action="store_true")
+    agent_demo.set_defaults(handler=run_agent_demo)
+    replay_parser = subparsers.add_parser("replay", help="replay software observations from JSON")
+    replay_parser.add_argument("path")
+    replay_parser.set_defaults(handler=run_replay)
     evolve = subparsers.add_parser("evolve")
     evolve.add_argument("--dry-run", action="store_true", required=True)
     args = parser.parse_args(argv)
     if hasattr(args, "handler"):
         args.handler(args)
         return
-    if args.command in (None, "demo"):
+    if args.command is None or (args.command == "demo" and not args.scenario):
         asyncio.run(run_demo())
+    elif args.command == "demo" and args.scenario:
+        run_interview_demo(args)
     elif args.command == "simulate":
         run_simulation()
     elif args.command == "evolve":

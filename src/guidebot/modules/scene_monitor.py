@@ -55,6 +55,16 @@ class SceneMonitorModule:
                 or task.payload.get("reason")
                 or "检测到场景异常，请及时查看。"
             )
+        elif task.action == "inspect_again":
+            return {
+                "module": self.name,
+                "action": task.action,
+                "message": "当前证据不确定，已请求重新采集场景。",
+                "rescan_requested": True,
+                "observation": {"requested_event": "scene.detected"},
+            }
+        elif task.action == "wait":
+            message = "当前证据不足，等待新的场景信息。"
         else:
             message = str(task.payload.get("summary", "场景已记录。"))
         return {"module": self.name, "action": task.action, "message": message}

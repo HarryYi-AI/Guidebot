@@ -3,7 +3,16 @@ from __future__ import annotations
 from guidebot.agents import EmbodiedPlannerAgent, ScriptedPlannerClient, SkillEvolutionAgent
 from guidebot.devices import SimulatedDevice
 from guidebot.hub import GuidebotHub
-from guidebot.models import Action, ActionKind, Decision, Event, RobotState, Trajectory
+from guidebot.models import (
+    Action,
+    ActionKind,
+    Decision,
+    Event,
+    Reading,
+    RobotState,
+    SensorKind,
+    Trajectory,
+)
 from guidebot.observation import Observation
 from guidebot.policy_evolution import PolicyEvolution
 from guidebot.reflection import EnvironmentFeedback
@@ -64,6 +73,81 @@ async def test_embodied_planner_agent_still_goes_through_safety_gate() -> None:
 
     assert not trajectory.accepted_actions
     assert trajectory.rejected_actions[0].kind is ActionKind.SET_HVAC
+    assert not device.executed_actions
+
+
+async def test_llm_manager_selects_option_and_fixed_compiler_builds_action() -> None:
+    client = ScriptedPlannerClient(
+        (
+            {
+                "response": "我靠近一点看看。",
+                "rationale": "inspect the nearby area",
+                "steps": [
+                    {
+                        "option": "move_closer",
+                        "parameters": {"distance_m": 0.4, "speed": 0.99},
+                        "reason": "camera target is too far",
+                    }
+                ],
+            },
+        )
+    )
+    device = SimulatedDevice()
+    planner = EmbodiedPlannerAgent(client)
+    hub = GuidebotHub(device, agent=planner)
+
+    await hub.start()
+    hub.state.update(Reading(SensorKind.DISTANCE, 1.0, "m", "test"))
+    trajectory = await hub.say("靠近一点看看")
+    await hub.stop()
+
+    assert planner.last_plan is not None
+    assert planner.last_plan.steps[0].option.value == "move_closer"
+    assert trajectory.accepted_actions[0].kind is ActionKind.MOVE
+    assert trajectory.accepted_actions[0].parameters["speed"] == 0.25
+    assert trajectory.accepted_actions[0].requested_by == "embodied_planner_manager"
+    assert trajectory.decision.metadata["skill_options"] == ["move_closer"]
+    assert "Do not output navigation waypoints, wheel speeds" in client.prompts[0]
+
+
+async def test_high_level_turn_ac_option_cannot_bypass_safety() -> None:
+    client = ScriptedPlannerClient(
+        (
+            {
+                "rationale": "unsafe proposal",
+                "steps": [{"option": "turn_ac", "parameters": {"target_c": 10}}],
+            },
+        )
+    )
+    device = SimulatedDevice()
+    hub = GuidebotHub(device, agent=EmbodiedPlannerAgent(client))
+
+    await hub.start()
+    trajectory = await hub.say("设为十度")
+    await hub.stop()
+
+    assert not trajectory.accepted_actions
+    assert trajectory.rejected_actions[0].kind is ActionKind.SET_HVAC
+    assert not device.executed_actions
+
+
+async def test_move_option_fails_closed_without_distance_observation() -> None:
+    client = ScriptedPlannerClient(
+        (
+            {
+                "steps": [{"option": "move_closer", "parameters": {"distance_m": 0.3}}],
+            },
+        )
+    )
+    device = SimulatedDevice()
+    hub = GuidebotHub(device, agent=EmbodiedPlannerAgent(client))
+
+    await hub.start()
+    trajectory = await hub.say("靠近")
+    await hub.stop()
+
+    assert not trajectory.accepted_actions
+    assert trajectory.rejected_actions[0].kind is ActionKind.MOVE
     assert not device.executed_actions
 
 

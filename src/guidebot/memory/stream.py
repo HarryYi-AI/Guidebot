@@ -1,4 +1,4 @@
-"""Memory stream with similarity and exponential time decay."""
+"""Existing self-evolution memory stream, retained as an offline experiment."""
 
 from __future__ import annotations
 
@@ -7,11 +7,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Callable, Sequence
 
-from .failure_attribution import FailureAttribution
-
-from .models import Decision, utc_now
-from .observation import FeatureMapper, Observation
-from .reflection import Critique, EnvironmentFeedback
+from ..failure_attribution import FailureAttribution
+from ..models import Decision, utc_now
+from ..observation import FeatureMapper, Observation
+from ..reflection import Critique, EnvironmentFeedback
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,7 +37,7 @@ class RetrievedMemory:
 
 
 class MemoryStream:
-    """Stores ``M_t`` and retrieves by ``cos(φ(q), φ(m_i))·exp(-λΔt)``."""
+    """Stores ``M_t`` and retrieves by ``cos(phi(q), phi(m_i))*exp(-lambda*dt)``."""
 
     def __init__(
         self,
@@ -88,7 +87,7 @@ class MemoryStream:
     def __len__(self) -> int:
         return len(self._items)
 
-    def __iter__(self):  # type intentionally inferred for a lightweight read-only iterator
+    def __iter__(self):
         return iter(self._items)
 
     @staticmethod

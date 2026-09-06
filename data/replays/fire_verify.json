@@ -1,0 +1,12 @@
+[
+  {
+    "type": "scene_result",
+    "label": "possible_fire",
+    "confidence": 0.63
+  },
+  {
+    "type": "scene_result",
+    "label": "fire",
+    "confidence": 0.91
+  }
+]

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Mapping
 
-from .models import Event, Reading, RobotState, SensorKind
+from .models import DomainEvent, Reading, RobotState, SensorKind
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,7 +51,7 @@ class FeatureMapper:
         return max(0.0, min(1.0, float(value)))
 
 
-def observation_from_event(event: Event, state: RobotState) -> Observation:
+def observation_from_event(event: DomainEvent, state: RobotState) -> Observation:
     """Create a stable continuous observation from an event and current state."""
 
     temperature = _number(state.value(SensorKind.TEMPERATURE), 22.0)
@@ -82,4 +82,3 @@ def observation_from_event(event: Event, state: RobotState) -> Observation:
 
 def _number(value: Any, default: float) -> float:
     return float(value) if isinstance(value, (int, float)) else default
-

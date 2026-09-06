@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from .failure_attribution import FailureAttribution, FailureAttributor
 from .memory import Experience, MemoryStream
-from .models import Action, ActionKind, Decision, Event, RobotState, SensorKind, Trajectory
+from .models import Action, ActionKind, Decision, DomainEvent, RobotState, SensorKind, Trajectory
 from .observation import Observation, observation_from_event
 from .policy_evolution import EvolutionOutcome, PolicyEvolution
 from .reflection import Critique, EnvironmentFeedback, ReflectionEngine
@@ -58,7 +58,7 @@ class SelfEvolvingAgent:
         self.last_step: AgentStep | None = None
         self.last_learning: LearningStep | None = None
 
-    async def decide(self, event: Event, state: RobotState) -> Decision:
+    async def decide(self, event: DomainEvent, state: RobotState) -> Decision:
         observation = observation_from_event(event, state)
         route = self.router.route(observation, state, self.library)
         raw_decision = route.skill.execute(observation, state)

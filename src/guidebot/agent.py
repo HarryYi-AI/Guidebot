@@ -9,7 +9,7 @@ from .models import (
     Action,
     ActionKind,
     Decision,
-    Event,
+    DomainEvent,
     Reading,
     RobotState,
     SensorKind,
@@ -17,7 +17,7 @@ from .models import (
 
 
 class Agent(Protocol):
-    async def decide(self, event: Event, state: RobotState) -> Decision: ...
+    async def decide(self, event: DomainEvent, state: RobotState) -> Decision: ...
 
 
 class AdaptiveAgent:
@@ -32,7 +32,7 @@ class AdaptiveAgent:
         self.skill_path = skill_path or default
         self.skill_text = self.skill_path.read_text(encoding="utf-8")
 
-    async def decide(self, event: Event, state: RobotState) -> Decision:
+    async def decide(self, event: DomainEvent, state: RobotState) -> Decision:
         if event.topic == "user.message":
             text = str(event.payload).strip()
             return Decision(response=f"我听到了：{text}", rationale="conversation fallback")
@@ -67,4 +67,3 @@ class AdaptiveAgent:
     def _set_hvac(target: float, reason: str) -> Decision:
         action = Action(ActionKind.SET_HVAC, {"target_c": target}, reason)
         return Decision((action,), f"{reason}，我把空调设为 {target:.0f}°C。", "thermal comfort")
-

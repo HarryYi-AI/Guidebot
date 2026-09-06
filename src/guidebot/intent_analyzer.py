@@ -46,6 +46,15 @@ class IntentAnalyzer:
         if event.event_type.startswith("ultrasonic.") and payload.get("obstacle") is True:
             return self._intent(IntentType.MOBILITY_STOP, event, 100, payload)
 
+        if event.event_type == "mobility.command" and payload.get("action") == "move_forward":
+            return self._intent(
+                IntentType.MOBILITY_MOVE,
+                event,
+                60,
+                payload,
+                requires_confirmation=payload.get("confirmed") is not True,
+            )
+
         if text:
             return self._analyze_text(event, text, normalized_text)
 
@@ -70,6 +79,20 @@ class IntentAnalyzer:
 
         if _contains_any(normalized, ("摸摸", "抱抱", "过来", "陪我")):
             return self._intent(IntentType.PET_INTERACTION, event, 30, {"text": text})
+
+        if _contains_any(normalized, ("广告素材", "广告海报", "营销图", "banner", "创意图")):
+            return self._intent(
+                IntentType.GENERATE_AD_CREATIVE,
+                event,
+                20,
+                {
+                    "text": text,
+                    "product": event.payload.get("product", "Guidebot"),
+                    "audience": event.payload.get("audience", "科技爱好者"),
+                    "goal": event.payload.get("goal", "提升点击率"),
+                },
+                requires_confirmation=True,
+            )
 
         return self._intent(IntentType.CHAT, event, 10, {"text": text})
 

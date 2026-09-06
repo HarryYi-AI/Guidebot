@@ -24,6 +24,9 @@ class RuntimeLogger:
     def task(self, payload: Any) -> None:
         self._write("tasks.jsonl", payload)
 
+    def trace(self, payload: Any) -> None:
+        self._write("traces.jsonl", payload)
+
     def _write(self, filename: str, payload: Any) -> None:
         with (self.log_dir / filename).open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(to_jsonable(payload), ensure_ascii=False) + "\n")

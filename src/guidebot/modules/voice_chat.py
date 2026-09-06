@@ -32,6 +32,8 @@ class VoiceChatModule:
         text = str(task.payload.get("text", ""))
         if task.action == "pet_interaction":
             response = "我在呢。"
+        elif task.action == "ask_user":
+            response = text or "请帮我确认一下当前环境。"
         else:
             response = f"我听到了：{text}" if text else "我在。"
         return {"module": self.name, "action": task.action, "message": response}

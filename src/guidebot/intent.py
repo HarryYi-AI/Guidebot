@@ -11,18 +11,24 @@ from .events import Event
 
 class IntentType(str, Enum):
     CHAT = "chat"
+    GENERATE_AD_CREATIVE = "generate_ad_creative"
     SET_ALARM = "set_alarm"
     CANCEL_ALARM = "cancel_alarm"
     TIMER_REMINDER = "timer_reminder"
     SAFETY_SCENE_ALERT = "safety_scene_alert"
     SAFETY_FIRE_ALERT = "safety_fire_alert"
     SAFETY_FALL_ALERT = "safety_fall_alert"
+    SCENE_INSPECT_AGAIN = "scene_inspect_again"
+    SCENE_ASK_USER = "scene_ask_user"
+    SCENE_MOVE_CLOSER = "scene_move_closer"
     HEALTH_SEDENTARY = "health_sedentary"
     HEALTH_FATIGUE = "health_fatigue"
     MOBILITY_STOP = "mobility_stop"
     CLIMATE_COMFORT = "climate_comfort"
     AC_LEFT_ON_ALERT = "ac_left_on_alert"
     PET_INTERACTION = "pet_interaction"
+    MOBILITY_MOVE = "mobility_move"
+    WAIT = "wait"
     UNKNOWN = "unknown"
 
 

@@ -11,6 +11,7 @@ from uuid import uuid4
 from .intent import Intent, IntentType
 from .models import utc_now
 from .runtime_skills import RuntimeSkillRegistry, build_default_runtime_skills
+from .tooling import ToolContract
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +26,7 @@ class Task:
     created_at: datetime = field(default_factory=utc_now)
     source_intent: Intent | None = None
     skill_id: str | None = None
+    tool_contract: ToolContract | None = None
 
 
 class Scheduler:
@@ -91,4 +93,5 @@ class Scheduler:
             now,
             intent,
             skill.skill_id,
+            skill.contract,
         )

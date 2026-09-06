@@ -46,7 +46,12 @@ class MobilityModule:
             message = "已停止小车移动。"
         elif task.action == "move_forward":
             self.stopped = False
-            message = "准备前进。"
+            message = "正在通过固定导航控制器低速前进。"
         else:
             message = "移动任务已记录。"
-        return {"module": self.name, "action": task.action, "message": message}
+        return {
+            "module": self.name,
+            "action": task.action,
+            "message": message,
+            "stopped": self.stopped,
+        }

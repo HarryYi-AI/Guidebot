@@ -1,70 +1,80 @@
-# Guidebot 架构草案
+# Guidebot Runtime Architecture
 
-## 核心原则
+## Scope
 
-Guidebot 采用边缘优先、事件驱动、硬件可替换的结构。自进化 agent 是决策总枢纽，但不是
-安全边界。所有物理动作都必须通过确定性的 Safety Policy，技能文本不能修改权限、温控硬限制
-或运动限速。
+Guidebot 的现有 Omni、VLM、YOLO、闹钟、小车运动和超声波代码保持不变，通过 Tool wrapper 接入。
+新增 Runtime 只在 Python、Mock Tool 和 Replay 中验证，不代表已经整体部署到真机。
+
+## Main loop
 
 ```text
-传感器/语音/视觉
-       │ Reading / Event
-       ▼
-  Event Bus ─────► Robot State / 轨迹记录
-       │
-       ▼
- Intent Analyzer
-       │ Intent
-       ▼
- RuntimeSkillRegistry
-       │ Task(module.action)
-       ▼
-  Safety Policy ──拒绝──► 审计事件
-       │ 允许
-       ▼
- Module Executor ─────► Device Adapter / TTS / Message
-       │
-       ▼
- ESP32 / Home Assistant / ROS 2 / 模拟器 / 外部课程源码 adapter
+Goal + multimodal Observation
+          ↓
+ContextManager ← Working / Episodic / LongTerm Memory
+          ↓
+PlannerAgent ── strict JSON ──► CriticAgent
+          ▲                         │ approve/revise ≤ 2
+          │                         ▼
+ToolResult / Observation ◄── ToolRegistry / Skill Router
+                                  │
+                              SafetyGate
+                                  │
+                     Real Adapter | Mock | Replay
+                                  │
+                              Trajectory
 ```
 
-在线 runtime 是确定性的：`IntentAnalyzer` 先用规则把事件映射为意图，`RuntimeSkillRegistry`
-再把意图解析为可执行模块能力，例如 `scene.fire_alert`、`health.sedentary`、`alarm.remind`、
-`climate.comfort`。温控被视为环境场景检测的一类：温湿度、空调状态和人在/离开状态进入
-`climate.detected`，异常时只生成建议或告警，真实红外/Home Assistant 控制必须另接 adapter 并继续
-经过 SafetyGate。这样后续新增“听音乐、闹钟、健康监测、宠物互动、空调”等功能时，只需要新增
-模块或外部 adapter，并在 `src/guidebot/runtime_skills.py` 注册 skill；LLM 不直接决定物理动作。
+`AgentLoop` 每轮只执行一个高层 Tool call，并受到 `max_steps` 限制。Tool 失败、安全拒绝和结构化结果都会
+变成下一轮 Observation；Planner 返回 `finish` 后结束。Critic 负责计划质量，SafetyGate 负责最终权限，
+两者不是同一层。
 
-可选 agent 角色放在 `src/guidebot/agents/`：
+## Tool boundary
 
-- `EmbodiedPlannerAgent`：面向 LLM/云端 planner，只输出结构化动作提案；
-- `SkillEvolutionAgent`：面向执行后的学习闭环，只做失败归因、反思和候选技能演化。
+```text
+Tool = name + description + JSON schema + async execute(**kwargs)
+ToolResult = success + data + error
+```
 
-旧的桌面宠物自进化 Skill Library 仍负责 Observation → Skill 的学习闭环；RuntimeSkillRegistry
-负责常驻服务中的 Intent → Task 调度。两者名字都叫 skill，但层级不同：前者用于策略进化，后者
-用于工程调度。
+`ToolRegistry` 是唯一执行入口。Planner 不能动态导入代码、构造任意函数名或直接访问设备。真实 Tool
+持有已有能力的 adapter；Mock Tool 返回确定性 observation，用于离线演示。
 
-## 自进化闭环
+## Physical safety
 
-参考 SkillOpt，但将线上执行与离线学习分离：
+- `obstacle=True` 禁止 `move_robot`；
+- duration 必须位于固定范围；
+- 未知物理动作 fail closed；
+- `stop_robot` 始终允许；
+- SafetyGate 不在 Planner prompt 内，也不属于可进化 Skill。
 
-1. 记录输入、工具调用、动作、用户反馈与任务评分。
-2. 在离线批次中区分成功和失败轨迹并反思。
-3. 优化器只提出少量 add/delete/replace 技能文本修改。
-4. 在留出场景和仿真器中做回归验证；只有严格提升才进入候选版本。
-5. 涉及物理行为的候选必须经人工批准后发布；安全策略永不进入可进化域。
+低层导航、motor PID、YOLO、ASR、VLM 和超声波循环保持固定。LLM 只选择高层 Skill/Option，不能
+token-by-token 生成 PWM、轮速或 PID 参数。
 
-## 推荐硬件边界
+## Memory and context
 
-- ESP32-S3：触摸、温湿度、灯光、舵机等实时 I/O；通过 MQTT/串口上报。
-- Raspberry Pi 5 或小型主机：语音、视觉、agent runtime、本地存储。
-- Home Assistant：空调和家庭设备接入；使用最小权限实体白名单。
-- ROS 2：只有在加入移动底盘、SLAM 或复杂运动控制后再引入，MVP 不强依赖。
+- WorkingMemory：最近 6 步 deque；
+- EpisodicMemory：完整 episode 的 append-only JSONL；
+- LongTermMemory：稳定信息，支持 update/supersede；
+- ContextManager：旧步骤生成 deterministic digest，最近 6 步保留详细结构；
+- Retrieval：关键词重合 + recency + importance，无向量数据库。
 
-## 接下来接口
+## Two compatible entry points
 
-- `DeviceAdapter`：真实 ESP32/MQTT 和 Home Assistant adapter。
-- `Agent`：云端或本地 LLM planner，输出结构化 `Decision`。
-- `SkillOptimizer` / `SkillEvaluator`：轨迹反思、仿真评测和技能候选。
-- 本地 API：状态查询、事件流、候选技能审批与紧急停止。
-- `RuntimeSkill`：新增可调度功能的统一注册点，保持模块和调度器低耦合。
+- `guidebot.runtime.AgentLoop`：面试主线，多步 Planner/Tool/Observation loop；
+- `guidebot.runtime.GuidebotRuntime`：保留已有 EventBus/Intent/Scheduler 常驻服务接口。
+
+目录迁移为 Python package 后，旧导入 `from guidebot.runtime import GuidebotRuntime`、
+`from guidebot.planning import FixedOptionCompiler` 和 `from guidebot.memory import MemoryStream` 继续有效。
+
+## Replay
+
+Replay 是 JSON observation sequence，不是物理仿真：
+
+```text
+possible_fire(0.63) → inspect again → fire(0.91) → speak alert → finish
+```
+
+## Offline self-evolution
+
+旧的 reflection/evolution/verifier 代码保留为实验性离线路径。生产 Runtime 只使用已批准 Tool/Skill，
+候选策略不能自动修改 SafetyGate 或生产代码。本阶段不做 RL、PPO、GRPO、world model、复杂仿真或
+自动生产自修改。

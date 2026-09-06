@@ -4,9 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any
 
-from .models import Action, ActionKind, RobotState
+from .models import Action, ActionKind, RobotState, SensorKind, utc_now
 from .scheduler import Task
+from .tooling import ToolPermission
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,6 +40,24 @@ class SafetyPolicy:
             speed = action.parameters.get("speed", 0)
             if not isinstance(speed, (int, float)) or not 0 <= float(speed) <= 1:
                 return SafetyResult(False, "motion speed must be within 0..1")
+            if action.parameters.get("direction") == "forward":
+                distance = state.readings.get(SensorKind.DISTANCE)
+                if distance is None or (utc_now() - distance.timestamp).total_seconds() > 2:
+                    return SafetyResult(False, "forward motion requires fresh distance observation")
+                if not isinstance(distance.value, (int, float)):
+                    return SafetyResult(False, "distance observation must be numeric")
+                distance_m = float(distance.value)
+                if distance.unit.casefold() in {"mm", "millimeter", "millimeters"}:
+                    distance_m /= 1_000
+                elif distance.unit.casefold() in {"cm", "centimeter", "centimeters"}:
+                    distance_m /= 100
+                if distance_m <= 0.2:
+                    return SafetyResult(False, "obstacle is too close for forward motion")
+
+        if action.kind is ActionKind.SET_ALARM:
+            alarm_time = action.parameters.get("time")
+            if not isinstance(alarm_time, str) or not alarm_time.strip():
+                return SafetyResult(False, "alarm time must be a non-empty string")
 
         return SafetyResult(True, "allowed")
 
@@ -76,6 +96,15 @@ class SafetyGate:
         if state.active_safety_alert and task.priority < 100:
             return SafetyResult(False, "ordinary task cannot override active safety alert")
 
+        contract = task.tool_contract
+        if (
+            contract is not None
+            and contract.permission is ToolPermission.PHYSICAL
+            and task.action != "stop"
+            and task.payload.get("confirmed") is not True
+        ):
+            return SafetyResult(False, "physical action requires explicit confirmation")
+
         if task.target_module == "mobility":
             if task.action == "move_forward" and state.obstacle:
                 return SafetyResult(False, "obstacle detected; move_forward is blocked")
@@ -94,6 +123,29 @@ class SafetyGate:
                     return SafetyResult(False, "climate action frequency is limited")
 
         return SafetyResult(True, "allowed")
+
+    def evaluate_tool_call(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        *,
+        known_physical_tool: bool = False,
+    ) -> SafetyResult:
+        """Fail-closed checks for the interview AgentLoop tool boundary."""
+        if tool_name == "stop_robot":
+            return SafetyResult(True, "safety stop always allowed")
+        if known_physical_tool and tool_name != "move_robot":
+            return SafetyResult(False, "unknown physical action is blocked")
+        if tool_name != "move_robot":
+            return SafetyResult(True, "non-physical tool allowed")
+        duration = arguments.get("duration_s")
+        if not isinstance(duration, (int, float)) or isinstance(duration, bool):
+            return SafetyResult(False, "move duration must be numeric")
+        if not 0 < float(duration) <= 10:
+            return SafetyResult(False, "move duration must be within 0..10 seconds")
+        if arguments.get("obstacle") is not False:
+            return SafetyResult(False, "obstacle detected; move_robot is blocked")
+        return SafetyResult(True, "fixed mobility controller may execute")
 
     @staticmethod
     def nighttime_tts_volume(hour: int) -> int:

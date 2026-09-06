@@ -6,9 +6,9 @@ from dataclasses import replace
 from typing import Callable
 
 from .agent import Agent
-from .bus import EventBus
+from .bus import AsyncEventBus
 from .devices.base import DeviceAdapter
-from .models import ActionKind, Event, Reading, RobotState, Trajectory
+from .models import ActionKind, DomainEvent, Reading, RobotState, Trajectory
 from .safety import SafetyPolicy
 from .self_evolving import SelfEvolvingAgent
 from .reflection import EnvironmentFeedback
@@ -22,13 +22,13 @@ class GuidebotHub:
         device: DeviceAdapter,
         agent: Agent | None = None,
         safety: SafetyPolicy | None = None,
-        bus: EventBus | None = None,
+        bus: AsyncEventBus | None = None,
         feedback_provider: FeedbackProvider | None = None,
     ) -> None:
         self.device = device
         self.agent = agent or SelfEvolvingAgent()
         self.safety = safety or SafetyPolicy()
-        self.bus = bus or EventBus()
+        self.bus = bus or AsyncEventBus()
         self.feedback_provider = feedback_provider
         self.state = RobotState()
         self.trajectories: list[Trajectory] = []
@@ -36,19 +36,19 @@ class GuidebotHub:
     async def start(self) -> None:
         await self.device.start()
         self.state.health = "ready"
-        await self.bus.publish(Event("system.ready", {"device": self.device.name}))
+        await self.bus.publish(DomainEvent("system.ready", {"device": self.device.name}))
 
     async def stop(self) -> None:
         await self.device.stop()
         self.state.health = "stopped"
-        await self.bus.publish(Event("system.stopped", {}))
+        await self.bus.publish(DomainEvent("system.stopped", {}))
 
     async def ingest(self, reading: Reading) -> Trajectory:
         self.state.update(reading)
-        return await self._handle(Event("sensor.reading", reading))
+        return await self._handle(DomainEvent("sensor.reading", reading))
 
     async def say(self, text: str) -> Trajectory:
-        return await self._handle(Event("user.message", text))
+        return await self._handle(DomainEvent("user.message", text))
 
     async def run_once(self) -> Trajectory | None:
         """Read and process one hardware sample; useful for loops and integration tests."""
@@ -63,7 +63,7 @@ class GuidebotHub:
         self.trajectories[index] = updated
         return updated
 
-    async def _handle(self, event: Event) -> Trajectory:
+    async def _handle(self, event: DomainEvent) -> Trajectory:
         await self.bus.publish(event)
         decision = await self.agent.decide(event, self.state)
         accepted = []
@@ -75,10 +75,12 @@ class GuidebotHub:
                 accepted.append(action)
                 if action.kind is ActionKind.SET_HVAC:
                     self.state.hvac_target_c = float(action.parameters["target_c"])
-                await self.bus.publish(Event("action.executed", action))
+                await self.bus.publish(DomainEvent("action.executed", action))
             else:
                 rejected.append(action)
-                await self.bus.publish(Event("action.rejected", {"action": action, "reason": result.reason}))
+                await self.bus.publish(
+                    DomainEvent("action.rejected", {"action": action, "reason": result.reason})
+                )
 
         trajectory = Trajectory(event, decision, tuple(accepted), tuple(rejected))
         self.trajectories.append(trajectory)

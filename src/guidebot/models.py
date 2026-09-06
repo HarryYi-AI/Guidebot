@@ -20,10 +20,13 @@ class SensorKind(str, Enum):
     TOUCH = "touch"
     MOTION = "motion"
     LIGHT = "light"
+    DISTANCE = "distance"
 
 
 class ActionKind(str, Enum):
+    INSPECT_ROOM = "inspect_room"
     SET_HVAC = "set_hvac"
+    SET_ALARM = "set_alarm"
     SPEAK = "speak"
     DISPLAY = "display"
     MOVE = "move"
@@ -54,6 +57,7 @@ class Decision:
     actions: tuple[Action, ...] = ()
     response: str | None = None
     rationale: str = ""
+    metadata: Mapping[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -74,16 +78,20 @@ class RobotState:
 
 
 @dataclass(frozen=True, slots=True)
-class Event:
+class DomainEvent:
     topic: str
     payload: Any
     id: str = field(default_factory=lambda: uuid4().hex)
     timestamp: datetime = field(default_factory=utc_now)
 
 
+Event = DomainEvent
+# Backward-compatible alias for the Hub/self-evolution domain event.
+
+
 @dataclass(frozen=True, slots=True)
 class Trajectory:
-    trigger: Event
+    trigger: DomainEvent
     decision: Decision
     accepted_actions: tuple[Action, ...]
     rejected_actions: tuple[Action, ...]

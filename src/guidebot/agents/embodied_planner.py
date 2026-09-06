@@ -8,7 +8,8 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from guidebot.agent import AdaptiveAgent, Agent
-from guidebot.models import Action, ActionKind, Decision, Event, Reading, RobotState
+from guidebot.models import Action, ActionKind, Decision, DomainEvent, Reading, RobotState
+from guidebot.planning import FixedOptionCompiler, HighLevelPlan, OptionStep, SkillOption
 
 
 class PlannerClient(Protocol):
@@ -41,12 +42,13 @@ class ScriptedPlannerClient:
 
 
 class EmbodiedPlannerAgent:
-    """LLM-facing planner that still lets Guidebot own safety and execution.
+    """LLM manager that selects options while Guidebot owns control and safety.
 
-    The planner can propose physical actions such as HVAC changes, speech, or
-    notifications, but it cannot execute them. ``GuidebotHub`` still evaluates
-    the returned ``Decision`` with deterministic ``SafetyPolicy`` before any
-    device adapter receives it.
+    The planner proposes a high-level option such as ``turn_ac`` or
+    ``move_closer``; it cannot generate or execute low-level controller commands.
+    ``FixedOptionCompiler`` maps the option to a typed action and ``GuidebotHub``
+    evaluates it with deterministic ``SafetyPolicy`` before any device adapter
+    receives it.
     """
 
     def __init__(
@@ -54,13 +56,16 @@ class EmbodiedPlannerAgent:
         client: PlannerClient | None = None,
         *,
         fallback: Agent | None = None,
+        compiler: FixedOptionCompiler | None = None,
     ) -> None:
         self.client = client
         self.fallback = fallback or AdaptiveAgent()
+        self.compiler = compiler or FixedOptionCompiler()
         self.last_prompt: str | None = None
         self.last_raw_response: str | None = None
+        self.last_plan: HighLevelPlan | None = None
 
-    async def decide(self, event: Event, state: RobotState) -> Decision:
+    async def decide(self, event: DomainEvent, state: RobotState) -> Decision:
         if self.client is None:
             return await self.fallback.decide(event, state)
 
@@ -69,7 +74,12 @@ class EmbodiedPlannerAgent:
         try:
             raw_response = await self.client.complete(prompt)
             self.last_raw_response = raw_response
-            return self.parse_decision(raw_response)
+            data = self._load_json_object(raw_response)
+            if "steps" in data:
+                plan = self.parse_plan(data)
+                self.last_plan = plan
+                return self.compiler.compile(plan, state)
+            return self.parse_decision(data)
         except Exception as error:
             fallback_decision = await self.fallback.decide(event, state)
             rationale = (
@@ -78,21 +88,21 @@ class EmbodiedPlannerAgent:
             )
             return Decision(fallback_decision.actions, fallback_decision.response, rationale)
 
-    def build_prompt(self, event: Event, state: RobotState) -> str:
+    def build_prompt(self, event: DomainEvent, state: RobotState) -> str:
         payload = {
             "role": "Guidebot EmbodiedPlannerAgent",
             "objective": (
-                "Convert the current user/environment event into a structured Decision. "
-                "Propose actions only; local SafetyPolicy performs final validation."
+                "Select exactly one next high-level skill option. Do not generate low-level "
+                "motor, PID, perception, ASR, or IR controller commands."
             ),
             "output_schema": {
                 "response": "short Chinese user-facing response or null",
                 "rationale": "brief reason for routing and planning",
-                "actions": [
+                "steps": [
                     {
-                        "kind": "set_hvac|speak|display|move|notify",
-                        "parameters": "JSON object matching the action schema",
-                        "reason": "why this action is useful",
+                        "option": "inspect_room|move_closer|ask_user|turn_ac|alarm|wait",
+                        "parameters": "JSON object matching the option schema",
+                        "reason": "why this high-level option is useful",
                     }
                 ],
             },
@@ -100,13 +110,40 @@ class EmbodiedPlannerAgent:
                 "Return JSON only.",
                 "Do not claim that an action has executed.",
                 "Do not modify permissions, safety limits, or device allow-lists.",
+                "Do not output navigation waypoints, wheel speeds, PID, YOLO, ASR, or IR commands.",
+                "Return at most one option step; observe feedback before planning the next step.",
                 "Prefer no action when intent or state is ambiguous.",
             ],
-            "action_schema": self._action_schema(),
+            "option_schema": self._option_schema(),
             "event": self._event_snapshot(event),
             "robot_state": self._state_snapshot(state),
         }
         return json.dumps(payload, ensure_ascii=False, sort_keys=True)
+
+    @classmethod
+    def parse_plan(cls, payload: str | Mapping[str, Any]) -> HighLevelPlan:
+        data = cls._load_json_object(payload)
+        step_items = data.get("steps", ()) or ()
+        if not isinstance(step_items, Sequence) or isinstance(step_items, (str, bytes)):
+            raise PlannerParseError("steps must be a JSON array")
+        steps = []
+        for item in step_items:
+            if not isinstance(item, Mapping):
+                raise PlannerParseError("each step must be a JSON object")
+            try:
+                option = SkillOption(str(item["option"]))
+            except (KeyError, ValueError) as error:
+                raise PlannerParseError("unknown or missing skill option") from error
+            parameters = item.get("parameters", {})
+            if not isinstance(parameters, Mapping):
+                raise PlannerParseError("option parameters must be a JSON object")
+            steps.append(OptionStep(option, dict(parameters), str(item.get("reason", ""))))
+        response = data.get("response")
+        return HighLevelPlan(
+            tuple(steps),
+            None if response is None else str(response),
+            str(data.get("rationale", "embodied high-level plan")),
+        )
 
     @classmethod
     def parse_decision(cls, payload: str | Mapping[str, Any]) -> Decision:
@@ -157,17 +194,18 @@ class EmbodiedPlannerAgent:
         return data
 
     @staticmethod
-    def _action_schema() -> Mapping[str, Any]:
+    def _option_schema() -> Mapping[str, Any]:
         return {
-            ActionKind.SET_HVAC.value: {"target_c": "number between local hard limits"},
-            ActionKind.SPEAK.value: {"text": "string"},
-            ActionKind.DISPLAY.value: {"text": "string"},
-            ActionKind.MOVE.value: {"speed": "number in 0..1", "direction": "string"},
-            ActionKind.NOTIFY.value: {"level": "info|warning|critical", "message": "string"},
+            SkillOption.INSPECT_ROOM.value: {"mode": "safety|general"},
+            SkillOption.MOVE_CLOSER.value: {"distance_m": "positive number"},
+            SkillOption.ASK_USER.value: {"question": "string"},
+            SkillOption.TURN_AC.value: {"target_c": "number proposed to local SafetyPolicy"},
+            SkillOption.ALARM.value: {"time": "string", "message": "string"},
+            SkillOption.WAIT.value: {"duration_s": "optional number; local scheduler owns timing"},
         }
 
     @staticmethod
-    def _event_snapshot(event: Event) -> Mapping[str, Any]:
+    def _event_snapshot(event: DomainEvent) -> Mapping[str, Any]:
         payload: Any = event.payload
         if isinstance(payload, Reading):
             payload = {

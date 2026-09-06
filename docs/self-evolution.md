@@ -16,6 +16,11 @@ Observation → Router → Skill → Safety → Device → Feedback
 
 SafetyPolicy 不属于可进化状态。技能增长不能扩大设备白名单、温控范围或运动速度上限。
 
+LLM Manager 的可进化范围也只限高层 Skill Option 的选择、前置条件和组合。导航控制器、motor PID、
+YOLO、ASR、IR 协议、安全阈值与急停逻辑属于固定低层，不作为 SkillCard 候选内容。当前
+RuntimeSkill 在线轨迹与研究型 `SelfEvolvingAgent` 使用不同事件模型，二者之间的持久化学习 adapter
+尚未完成；因此当前演示的是受控离线进化机制，而不是声称线上常驻服务会自动改写自身。
+
 ## 2. Observation 与 Router
 
 Guidebot 的连续观测定义为：
