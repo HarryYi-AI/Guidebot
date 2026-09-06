@@ -75,6 +75,6 @@ possible_fire(0.63) → inspect again → fire(0.91) → speak alert → finish
 
 ## Offline self-evolution
 
-旧的 reflection/evolution/verifier 代码保留为实验性离线路径。生产 Runtime 只使用已批准 Tool/Skill，
+reflection/evolution/verifier 代码保留为实验性离线路径。生产 Runtime 只使用已批准 Tool/Skill，
 候选策略不能自动修改 SafetyGate 或生产代码。本阶段不做 RL、PPO、GRPO、world model、复杂仿真或
 自动生产自修改。
