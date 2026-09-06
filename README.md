@@ -1,3 +1,4 @@
+
 # Guidebot — Multimodal Agent Runtime for Physical Environments
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
@@ -12,14 +13,15 @@ Guidebot 起源于树莓派视觉小车原型，已经分别验证语音交互�
 
 ## 30 秒看懂项目
 
-| 系统能力 | Guidebot 中的落地 |
-|---|---|
-| Agent Framework | 有界 ReAct-style `AgentLoop`，ToolResult 自动回到下一轮 Observation |
-| Tool Calling | 统一异步 Tool、JSON Schema、白名单 Registry、结构化错误 |
-| Safe Embodied AI | LLM 只做 high-level planning，物理动作由独立 SafetyGate 决定权限 |
-| Memory / Context | Working、Episodic、Long-term Memory；最近 6 步 + 旧轨迹摘要 |
-| Multi-Agent | 只保留 Planner/Critic，最多修订 2 次，避免无限讨论 |
-| Evaluation | Mock Tool 与事件 Replay，无摄像头、模型 API 或真实小车也能复现 |
+
+| 系统能力         | Guidebot 中的落地                                                  |
+| ------------------ | -------------------------------------------------------------------- |
+| Agent Framework  | 有界 ReAct-style`AgentLoop`，ToolResult 自动回到下一轮 Observation |
+| Tool Calling     | 统一异步 Tool、JSON Schema、白名单 Registry、结构化错误            |
+| Safe Embodied AI | LLM 只做 high-level planning，物理动作由独立 SafetyGate 决定权限   |
+| Memory / Context | Working、Episodic、Long-term Memory；最近 6 步 + 旧轨迹摘要        |
+| Multi-Agent      | 只保留 Planner/Critic，最多修订 2 次，避免无限讨论                 |
+| Evaluation       | Mock Tool 与事件 Replay，无摄像头、模型 API 或真实小车也能复现     |
 
 ## 验证范围
 
@@ -41,8 +43,9 @@ Hardware validated（已有脚本在真实小车上分别验证）：
 - 最近 6 步上下文与确定性旧轨迹摘要；
 - break-reminder 多步任务与 fire-verify 主动感知 Replay。
 
-**已在真实小车上全量部署：❌ 尚未达成。** 上述硬件能力曾分别在树莓派小车上验证；统一的多步
-Agent Runtime 目前通过 Mock Tool 和历史事件重放验证，真实能力通过 wrapper 边界接入。
+上述硬件能力曾分别在树莓派小车上验证；
+
+统一的多步Agent Runtime 目前通过 Mock Tool 和历史事件重放验证，真实能力通过 wrapper 边界接入。
 
 ## 主架构
 
@@ -255,8 +258,8 @@ docs/architecture.md
 episode → reflection → candidate skill → held-out validation → optional approval
 ```
 
-生产 Runtime 只加载批准过的 Skill。当前不会自动修改生产策略，不做 PPO/GRPO、RL、world model、
-自动生产自修改，也不引入 ROS2、Gazebo、Isaac Sim、Kubernetes、Redis、Milvus、Neo4j 或 Kafka。
+生产 Runtime 只加载批准过的 Skill。未来会引入自动修改生产策略，PPO/GRPO、RL、
+自动生产自修改，当小车技术成熟后引入Milvus、Neo4j 或 Kafka。
 
 详细架构设计见 [docs/architecture.md](docs/architecture.md)。树莓派语音与已有硬件接入细节见
 [docs/realtime-voice-deployment.md](docs/realtime-voice-deployment.md) 和
