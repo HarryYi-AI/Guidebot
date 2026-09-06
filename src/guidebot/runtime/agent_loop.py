@@ -5,7 +5,7 @@ from __future__ import annotations
 from time import perf_counter
 from uuid import uuid4
 
-from ..memory import Episode, EpisodicMemory, WorkingMemory
+from ..memory import Episode, EpisodicMemory
 from ..planning import AgentMessage, CriticAgent, DecisionType, Planner, PlannerDecision
 from ..safety import SafetyGate, SafetyResult
 from ..tools import ToolRegistry, ToolResult, UnknownToolError
@@ -33,10 +33,10 @@ class AgentLoop:
         self.safety_gate = safety_gate or SafetyGate()
         self.critic = critic or CriticAgent(self.safety_gate)
         self.context_manager = context_manager or ContextManager()
-        self.episodic_memory = episodic_memory
+        self.episodic_memory = episodic_memory or EpisodicMemory()
         self.max_steps = max_steps
         self.max_revisions = max_revisions
-        self.working_memory = WorkingMemory(self.context_manager.recent_steps)
+        self.working_memory = self.context_manager.working_memory
 
     async def run(
         self,
@@ -45,7 +45,7 @@ class AgentLoop:
         initial_observation: Observation | None = None,
         required_tools: tuple[str, ...] = (),
     ) -> AgentRunResult:
-        self.working_memory.clear()
+        self.context_manager.reset()
         trace_id = uuid4().hex
         trajectory: list[AgentLoopStep] = []
         messages: list[AgentMessage] = []
@@ -118,7 +118,7 @@ class AgentLoop:
                     (perf_counter() - started) * 1_000,
                 )
                 trajectory.append(step)
-                self.working_memory.append(step)
+                self.context_manager.update(step)
                 return self._finish(
                     goal,
                     RunStatus.FINISHED,
@@ -148,7 +148,7 @@ class AgentLoop:
                 (perf_counter() - started) * 1_000,
             )
             trajectory.append(step)
-            self.working_memory.append(step)
+            self.context_manager.update(step)
 
         return self._finish(
             goal,
@@ -184,14 +184,13 @@ class AgentLoop:
         trace_id: str,
     ) -> AgentRunResult:
         result = AgentRunResult(goal, status, tuple(trajectory), answer, tuple(messages), trace_id)
-        if self.episodic_memory is not None:
-            self.episodic_memory.append(
-                Episode(
-                    task=goal,
-                    trajectory=result.trajectory,
-                    outcome=status.value,
-                    success=status is RunStatus.FINISHED,
-                    episode_id=result.trace_id,
-                )
+        self.episodic_memory.append(
+            Episode(
+                task=goal,
+                trajectory=result.trajectory,
+                outcome=status.value,
+                success=status is RunStatus.FINISHED,
+                episode_id=result.trace_id,
             )
+        )
         return result

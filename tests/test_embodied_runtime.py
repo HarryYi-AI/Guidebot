@@ -136,5 +136,10 @@ def test_sedentary_demo_records_cooldown(capsys) -> None:
     payload = json.loads(capsys.readouterr().out)
     traces = payload["trajectories"]
     assert traces[0]["trajectory"]["selected_skill"] == "health.sedentary"
-    assert traces[1]["trajectory"]["selected_skill"] is None
-    assert traces[1]["final_status"] == "no_task"
+    repeated = traces[1]
+    assert repeated["trajectory"]["selected_skill"] == "health.sedentary"
+    assert repeated["final_status"] == "suppressed"
+    assert repeated["outcome_type"] == "suppressed"
+    assert repeated["reason"] == "cooldown_or_dedup"
+    assert repeated["trajectory"]["success"] is True
+    assert repeated["trajectory"]["reward"]["total"] == 0.0

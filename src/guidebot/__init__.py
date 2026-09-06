@@ -2,6 +2,7 @@
 
 from .hub import GuidebotHub
 from .models import Action, DomainEvent, Reading, RobotState
+from .outcomes import OutcomeType
 from .perception import BeliefState, BeliefUpdate, MultimodalPerception
 from .planning import FixedOptionCompiler, HighLevelPlan, OptionStep, SkillOption
 from .reward import RewardBreakdown, RewardWeights, TrajectoryReward
@@ -17,6 +18,7 @@ __all__ = [
     "HighLevelPlan",
     "MultimodalPerception",
     "OptionStep",
+    "OutcomeType",
     "Reading",
     "RobotState",
     "RewardBreakdown",

@@ -91,6 +91,7 @@ class GuidebotService:
 
     async def handle_event(self, event: Event) -> RuntimeTrace:
         trace = self.runtime.ingest(event)
+        print(trace.human_summary(), flush=True)
         if trace.task is not None and Scheduler.can_preempt(trace.task):
             if self.on_preempt is not None:
                 try:

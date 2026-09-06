@@ -51,15 +51,15 @@ token-by-token 生成 PWM、轮速或 PID 参数。
 
 ## Memory and context
 
-- WorkingMemory：最近 6 步 deque；
-- EpisodicMemory：完整 episode 的 append-only JSONL；
+- WorkingMemory：由 ContextManager 持有的最近 6 步 deque，AgentLoop 每步调用 `update()`；
+- EpisodicMemory：AgentLoop 默认启用内存存储，也可使用 append-only JSONL 持久化完整 episode；
 - LongTermMemory：稳定信息，支持 update/supersede；
 - ContextManager：旧步骤生成 deterministic digest，最近 6 步保留详细结构；
 - Retrieval：关键词重合 + recency + importance，无向量数据库。
 
 ## Two compatible entry points
 
-- `guidebot.runtime.AgentLoop`：面试主线，多步 Planner/Tool/Observation loop；
+- `guidebot.runtime.AgentLoop`：多步 Planner/Tool/Observation 验证主线；
 - `guidebot.runtime.GuidebotRuntime`：保留已有 EventBus/Intent/Scheduler 常驻服务接口。
 
 目录迁移为 Python package 后，旧导入 `from guidebot.runtime import GuidebotRuntime`、

@@ -1,4 +1,4 @@
-"""Deterministic interview workflows using only Mock Tools."""
+"""Deterministic end-to-end workflows using only Mock Tools."""
 
 from __future__ import annotations
 

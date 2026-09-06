@@ -1,4 +1,4 @@
-"""Production event runtime plus the mock/replay interview AgentLoop."""
+"""Resident event runtime plus the mock/replay AgentLoop."""
 
 from .agent_loop import AgentLoop
 from .context_manager import AgentContext, ContextManager, DeterministicSummarizer

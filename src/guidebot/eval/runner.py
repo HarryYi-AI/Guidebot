@@ -85,7 +85,7 @@ class RuntimeEvalRunner:
             skill_id == case.expected_skill_id,
             case.expected_safety_allowed is None
             or safety_allowed is case.expected_safety_allowed,
-            trace.final_status == "succeeded",
+            trace.trajectory is not None and trace.trajectory.success,
         )
         passed = all(checks)
         reason = "passed" if passed else (

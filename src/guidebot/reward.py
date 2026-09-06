@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .events import RuntimeEvent
+from .outcomes import OutcomeType
 from .perception import BeliefUpdate
 from .safety import SafetyResult
 from .scheduler import Task
@@ -46,7 +47,10 @@ class TrajectoryReward:
         execution: ToolExecution | None,
         verification: TaskVerification | None,
         latency_ms: float,
+        outcome_type: OutcomeType = OutcomeType.EXECUTED,
     ) -> RewardBreakdown:
+        if outcome_type in {OutcomeType.SUPPRESSED, OutcomeType.NO_ACTION_REQUIRED}:
+            return RewardBreakdown(0.0, 0.0, 0.0, 0.0, 0, 0.0)
         succeeded = (
             execution is not None
             and execution.status is ToolStatus.SUCCEEDED

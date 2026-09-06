@@ -21,11 +21,12 @@ from ..modules import (
     SceneMonitorModule,
     VoiceChatModule,
 )
+from ..outcomes import OutcomeType
 from ..perception import MultimodalPerception
 from ..reward import TrajectoryReward
 from ..runtime_skills import RuntimeSkillRegistry, build_default_runtime_skills
 from ..safety import RuntimeSafetyState, SafetyGate, SafetyResult
-from ..scheduler import Scheduler, Task
+from ..scheduler import ScheduleDisposition, ScheduleResult, Scheduler, Task
 from ..task_verification import TaskVerification, TaskVerificationStatus, TaskVerifier
 from ..tooling import ToolContract, ToolDispatcher, ToolExecution, ToolPermission, ToolStatus
 from ..trajectory import AgentTrajectory
@@ -44,6 +45,18 @@ class RuntimeTrace:
     verification: TaskVerification | None = None
     final_status: str = "unknown"
     trajectory: AgentTrajectory | None = None
+    outcome_type: OutcomeType = OutcomeType.FAILED
+    reason: str = "unknown"
+
+    def human_summary(self) -> str:
+        task_name = self.trajectory.selected_skill if self.trajectory else None
+        task_name = task_name or self.intent.intent_type.value
+        parts = [f"[{self.outcome_type.value}]", f"[{task_name}]"]
+        if self.outcome_type is OutcomeType.SUPPRESSED:
+            parts.append(f"[{self.reason}]")
+        duration = self.trajectory.latency_ms if self.trajectory else 0.0
+        parts.append(f"[{duration:.2f}ms]")
+        return " ".join(parts)
 
 
 class GuidebotRuntime:
@@ -105,7 +118,8 @@ class GuidebotRuntime:
                 self.safety_state.obstacle = obstacle
 
         intent = planner_decision.intent
-        task = self.scheduler.schedule(intent)
+        schedule_result = self.scheduler.schedule_with_outcome(intent)
+        task = schedule_result.task
         safety = None
         action = None
         execution = None
@@ -149,7 +163,13 @@ class GuidebotRuntime:
                 }
                 verification = self.task_verifier.verify(task, safety, None)
 
-        final_status = _final_status(task, safety, execution, verification)
+        final_status = _final_status(schedule_result, safety, execution, verification)
+        outcome_type, outcome_reason = _outcome(
+            schedule_result,
+            safety,
+            execution,
+            verification,
+        )
         latency_ms = (perf_counter() - started_at) * 1_000
         reward = self.reward_model.evaluate(
             event=observation,
@@ -159,31 +179,36 @@ class GuidebotRuntime:
             execution=execution,
             verification=verification,
             latency_ms=latency_ms,
+            outcome_type=outcome_type,
         )
         trajectory = AgentTrajectory(
-            observation,
-            belief,
-            planner_decision,
-            task.skill_id if task is not None else None,
-            dict(task.payload) if task is not None else {},
-            safety,
-            action,
-            reward,
-            final_status == "succeeded",
-            latency_ms,
+            observation=observation,
+            belief=belief,
+            planner_decision=planner_decision,
+            selected_skill=schedule_result.skill_id,
+            arguments=dict(task.payload) if task is not None else {},
+            safety_decision=safety,
+            result=action,
+            reward=reward,
+            success=outcome_type is not OutcomeType.FAILED,
+            latency_ms=latency_ms,
+            outcome_type=outcome_type,
+            reason=outcome_reason,
         )
         trace = RuntimeTrace(
-            observation,
-            intent,
-            task,
-            safety,
-            action,
-            observation.event_id,
-            observation.session_id or observation.source,
-            execution,
-            verification,
-            final_status,
-            trajectory,
+            event=observation,
+            intent=intent,
+            task=task,
+            safety=safety,
+            action=action,
+            trace_id=observation.event_id,
+            session_id=observation.session_id or observation.source,
+            execution=execution,
+            verification=verification,
+            final_status=final_status,
+            trajectory=trajectory,
+            outcome_type=outcome_type,
+            reason=outcome_reason,
         )
         self._log(trace)
         return trace
@@ -220,13 +245,15 @@ class GuidebotRuntime:
 
 
 def _final_status(
-    task: Task | None,
+    schedule: ScheduleResult,
     safety: SafetyResult | None,
     execution: ToolExecution | None,
     verification: TaskVerification | None,
 ) -> str:
-    if task is None:
-        return "no_task"
+    if schedule.disposition is ScheduleDisposition.SUPPRESSED:
+        return "suppressed"
+    if schedule.disposition is ScheduleDisposition.NO_ACTION_REQUIRED:
+        return "no_action_required"
     if safety is not None and not safety.allowed:
         return "safety_rejected"
     if execution is None or execution.status is not ToolStatus.SUCCEEDED:
@@ -234,3 +261,24 @@ def _final_status(
     if verification is None or verification.status is not TaskVerificationStatus.PASSED:
         return "verification_failed"
     return "succeeded"
+
+
+def _outcome(
+    schedule: ScheduleResult,
+    safety: SafetyResult | None,
+    execution: ToolExecution | None,
+    verification: TaskVerification | None,
+) -> tuple[OutcomeType, str]:
+    if schedule.disposition is ScheduleDisposition.SUPPRESSED:
+        return OutcomeType.SUPPRESSED, schedule.reason
+    if schedule.disposition is ScheduleDisposition.NO_ACTION_REQUIRED:
+        return OutcomeType.NO_ACTION_REQUIRED, schedule.reason
+    if safety is not None and not safety.allowed:
+        return OutcomeType.FAILED, safety.reason
+    if execution is None or execution.status is not ToolStatus.SUCCEEDED:
+        reason = execution.error_message if execution else "tool execution missing"
+        return OutcomeType.FAILED, reason or "tool execution failed"
+    if verification is None or verification.status is not TaskVerificationStatus.PASSED:
+        reason = verification.reason if verification else "verification missing"
+        return OutcomeType.FAILED, reason
+    return OutcomeType.EXECUTED, "completed"

@@ -23,6 +23,13 @@ def test_episodic_memory_appends_jsonl(tmp_path) -> None:
     assert records[1]["success"] is False
 
 
+def test_episodic_memory_can_run_in_memory() -> None:
+    memory = EpisodicMemory()
+    memory.append(Episode("task", (), "finished", True))
+
+    assert memory.read_all()[0]["task"] == "task"
+
+
 def test_long_term_memory_supersedes_without_deleting_history(tmp_path) -> None:
     memory = LongTermMemory(tmp_path / "long_term.json")
     first = memory.add("用户喜欢第一次提醒", importance=0.7)
@@ -74,3 +81,14 @@ def test_context_manager_digests_old_steps_and_keeps_recent_six() -> None:
 
     assert len(context.recent_steps) == 6
     assert context.reasoning_digest == "0:speak:True | 1:speak:True"
+
+
+def test_context_manager_updates_working_memory() -> None:
+    manager = ContextManager(recent_steps=2)
+    manager.update(_step(1))
+    manager.update(_step(2))
+    manager.update(_step(3))
+
+    assert [step.index for step in manager.working_memory] == [2, 3]
+    manager.reset()
+    assert len(manager.working_memory) == 0

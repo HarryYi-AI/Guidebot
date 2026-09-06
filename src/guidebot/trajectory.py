@@ -7,6 +7,7 @@ from typing import Any
 
 from .agent_planner import PlannerDecision
 from .events import RuntimeEvent
+from .outcomes import OutcomeType
 from .perception import BeliefUpdate
 from .reward import RewardBreakdown
 from .safety import SafetyResult
@@ -24,3 +25,5 @@ class AgentTrajectory:
     reward: RewardBreakdown
     success: bool
     latency_ms: float
+    outcome_type: OutcomeType = OutcomeType.FAILED
+    reason: str = "unknown"

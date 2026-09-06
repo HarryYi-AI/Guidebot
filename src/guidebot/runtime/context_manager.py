@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Protocol, Sequence
 
 from ..logbook import to_jsonable
-from ..memory import LongTermMemory, MemoryRetriever
+from ..memory import LongTermMemory, MemoryRetriever, WorkingMemory
 from ..tools import ToolRegistry
 from .state import AgentLoopStep, Observation
 
@@ -54,6 +54,15 @@ class ContextManager:
         self.long_term_memory = long_term_memory or LongTermMemory()
         self.retriever = MemoryRetriever(self.long_term_memory)
         self.summarizer = summarizer or DeterministicSummarizer()
+        self.working_memory = WorkingMemory(recent_steps)
+
+    def reset(self) -> None:
+        """Start a new task while retaining long-term memory."""
+        self.working_memory.clear()
+
+    def update(self, step: AgentLoopStep) -> None:
+        """Record a completed step in the bounded working context."""
+        self.working_memory.append(step)
 
     def build(
         self,

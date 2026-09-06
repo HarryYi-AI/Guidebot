@@ -131,7 +131,7 @@ class SafetyGate:
         *,
         known_physical_tool: bool = False,
     ) -> SafetyResult:
-        """Fail-closed checks for the interview AgentLoop tool boundary."""
+        """Fail-closed checks for the AgentLoop tool boundary."""
         if tool_name == "stop_robot":
             return SafetyResult(True, "safety stop always allowed")
         if known_physical_tool and tool_name != "move_robot":

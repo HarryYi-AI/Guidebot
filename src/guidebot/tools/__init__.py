@@ -1,4 +1,4 @@
-"""Typed tool wrappers for the interview-facing Agent Runtime."""
+"""Typed tool wrappers for the Guidebot Agent Runtime."""
 
 from .base import Tool, ToolResult
 from .mocks import MockAlarmTool, MockHealthCheckTool, MockRobotTool, MockSceneInspectTool

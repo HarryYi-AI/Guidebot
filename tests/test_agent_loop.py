@@ -24,6 +24,22 @@ async def test_agent_loop_stops_at_max_steps() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_loop_wires_context_and_episodic_memory_by_default() -> None:
+    registry = ToolRegistry()
+    registry.register(SpeakTool())
+    planner = MockPlanner(
+        (PlannerDecision(DecisionType.FINISH, "done", final_answer="done"),)
+    )
+    loop = AgentLoop(planner, registry)
+
+    result = await loop.run("finish")
+
+    assert loop.working_memory is loop.context_manager.working_memory
+    assert len(loop.working_memory) == 1
+    assert loop.episodic_memory.read_all()[0]["episode_id"] == result.trace_id
+
+
+@pytest.mark.asyncio
 async def test_planner_critic_requests_revision_for_unknown_tool() -> None:
     registry = ToolRegistry()
     registry.register(SpeakTool())

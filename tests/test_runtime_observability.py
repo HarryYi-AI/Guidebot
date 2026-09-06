@@ -2,6 +2,7 @@ import json
 
 from guidebot.events import Event
 from guidebot.logbook import RuntimeLogger
+from guidebot.outcomes import OutcomeType
 from guidebot.runtime import GuidebotRuntime
 from guidebot.task_verification import TaskVerificationStatus
 from guidebot.tooling import ToolStatus
@@ -21,6 +22,8 @@ def test_runtime_records_execution_verification_and_final_status(tmp_path) -> No
     assert trace.verification is not None
     assert trace.verification.status is TaskVerificationStatus.PASSED
     assert trace.final_status == "succeeded"
+    assert trace.outcome_type is OutcomeType.EXECUTED
+    assert trace.human_summary().startswith("[executed] [voice.chat] [")
 
     records = (tmp_path / "traces.jsonl").read_text(encoding="utf-8").splitlines()
     persisted = json.loads(records[-1])
@@ -40,3 +43,16 @@ def test_safety_rejection_is_a_terminal_observable_status() -> None:
     assert trace.verification is not None
     assert trace.verification.status is TaskVerificationStatus.NOT_RUN
     assert trace.final_status == "safety_rejected"
+    assert trace.outcome_type is OutcomeType.FAILED
+    assert trace.trajectory is not None
+    assert trace.trajectory.success is False
+
+
+def test_unknown_event_needing_no_action_is_successful() -> None:
+    trace = GuidebotRuntime().ingest(Event("unknown", "test", {}))
+
+    assert trace.final_status == "no_action_required"
+    assert trace.outcome_type is OutcomeType.NO_ACTION_REQUIRED
+    assert trace.trajectory is not None
+    assert trace.trajectory.success is True
+    assert trace.trajectory.reward.total == 0.0

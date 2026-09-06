@@ -6,8 +6,8 @@ when speech generation is needed, and install ffmpeg for WAV conversion:
     python -m pip install edge-tts
 
 Examples:
-    python src/guidebot/health_guardian/t2v.py "久坐提醒"
-    python src/guidebot/health_guardian/t2v.py "久坐提醒" -o sounds/remind.wav
+    python health_guardian/t2v.py "久坐提醒"
+    python health_guardian/t2v.py "久坐提醒" -o sounds/remind.wav
 """
 
 from __future__ import annotations

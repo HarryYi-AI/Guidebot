@@ -5,6 +5,7 @@ from __future__ import annotations
 import heapq
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
+from enum import Enum
 from typing import Any
 from uuid import uuid4
 
@@ -12,6 +13,12 @@ from .intent import Intent, IntentType
 from .models import utc_now
 from .runtime_skills import RuntimeSkillRegistry, build_default_runtime_skills
 from .tooling import ToolContract
+
+
+class ScheduleDisposition(str, Enum):
+    SCHEDULED = "scheduled"
+    SUPPRESSED = "suppressed"
+    NO_ACTION_REQUIRED = "no_action_required"
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,6 +34,14 @@ class Task:
     source_intent: Intent | None = None
     skill_id: str | None = None
     tool_contract: ToolContract | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduleResult:
+    task: Task | None
+    disposition: ScheduleDisposition
+    reason: str
+    skill_id: str | None = None
 
 
 class Scheduler:
@@ -49,19 +64,36 @@ class Scheduler:
         self._counter = 0
 
     def schedule(self, intent: Intent, now: datetime | None = None) -> Task | None:
+        return self.schedule_with_outcome(intent, now).task
+
+    def schedule_with_outcome(
+        self,
+        intent: Intent,
+        now: datetime | None = None,
+    ) -> ScheduleResult:
         now = now or utc_now()
         if intent.intent_type is IntentType.UNKNOWN and intent.priority <= 0:
-            return None
+            return ScheduleResult(
+                None,
+                ScheduleDisposition.NO_ACTION_REQUIRED,
+                "no_action_needed",
+            )
         cooldown = self.cooldowns.get(intent.intent_type)
         last = self._last_scheduled.get(intent.intent_type)
         if cooldown is not None and last is not None and now - last < cooldown:
-            return None
+            skill_id = self.skill_registry.resolve(intent.intent_type).skill_id
+            return ScheduleResult(
+                None,
+                ScheduleDisposition.SUPPRESSED,
+                "cooldown_or_dedup",
+                skill_id,
+            )
 
         task = self._task_from_intent(intent, now)
         self._last_scheduled[intent.intent_type] = now
         self._counter += 1
         heapq.heappush(self._heap, (-task.priority, self._counter, task))
-        return task
+        return ScheduleResult(task, ScheduleDisposition.SCHEDULED, "scheduled", task.skill_id)
 
     def next_task(self) -> Task | None:
         if not self._heap:

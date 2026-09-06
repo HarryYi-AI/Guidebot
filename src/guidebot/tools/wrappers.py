@@ -113,11 +113,3 @@ class StopRobotTool(AdapterTool):
     description = "Immediately stop the existing robot mobility adapter"
     physical = True
     schema = {"type": "object", "properties": {}}
-
-
-class _PassthroughTool(AdapterTool):
-    def __init__(self, name: str, description: str, schema: dict[str, Any], adapter: Adapter) -> None:
-        super().__init__(adapter)
-        self.name = name
-        self.description = description
-        self.schema = schema

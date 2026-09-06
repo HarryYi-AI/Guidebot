@@ -1,18 +1,18 @@
 # Guidebot — Multimodal Agent Runtime for Physical Environments
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-153%20passed-2EA44F)](#验证与测试)
+[![Tests](https://img.shields.io/badge/tests-157%20passed-2EA44F)](#验证与测试)
 
 Guidebot 起源于树莓派视觉小车原型，已经分别验证语音交互、视觉场景理解、人体状态检测、闹钟移动
 和超声波挡停。当前仓库的重点不是增加机器人功能，而是把这些能力封装成可规划、可审计、可重放的
 多模态 Agent Runtime。
 
-> An interview-oriented, safety-first Agent Runtime that turns separately validated robot
-> capabilities into bounded tool-use workflows with planning, critique, memory and replay.
+> A safety-first Agent Runtime that turns separately validated robot capabilities into
+> bounded, observable tool-use workflows with planning, critique, memory and replay.
 
 ## 30 秒看懂项目
 
-| 面试能力点 | Guidebot 中的落地 |
+| 系统能力 | Guidebot 中的落地 |
 |---|---|
 | Agent Framework | 有界 ReAct-style `AgentLoop`，ToolResult 自动回到下一轮 Observation |
 | Tool Calling | 统一异步 Tool、JSON Schema、白名单 Registry、结构化错误 |
@@ -31,7 +31,7 @@ Hardware validated（已有脚本在真实小车上分别验证）：
 - 闹钟触发移动；
 - 超声波障碍检测与立即停止。
 
-Software / mock validated（新 Agent Runtime 在 VSCode、Mock Tool、Replay 中验证）：
+**Agent Runtime 已在 Mock/Replay 环境中完整闭环验证：✅**
 
 - 统一 Tool Registry 与 JSON Schema；
 - 有 `max_steps` 的 Planner/Tool/Observation AgentLoop；
@@ -41,8 +41,8 @@ Software / mock validated（新 Agent Runtime 在 VSCode、Mock Tool、Replay �
 - 最近 6 步上下文与确定性旧轨迹摘要；
 - break-reminder 多步任务与 fire-verify 主动感知 Replay。
 
-**没有声称新的多步 AgentLoop 已整体部署到真实机器人。** 真实能力通过 wrapper 注入，新流程目前使用
-Mock Tool 和历史事件重放验证。
+**已在真实小车上全量部署：❌ 尚未达成。** 上述硬件能力曾分别在树莓派小车上验证；统一的多步
+Agent Runtime 目前通过 Mock Tool 和历史事件重放验证，真实能力通过 wrapper 边界接入。
 
 ## 主架构
 
@@ -73,7 +73,8 @@ ASR、VLM 调用和超声波停止逻辑仍由固定实现负责，不能由 LLM
 要求 Python 3.10+，核心 Runtime 没有重型依赖。
 
 ```bash
-cd /workspace/ylj/harry_main/Guidebot
+git clone https://github.com/HarryYi-AI/Guidebot.git
+cd Guidebot
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -e '.[dev]'
@@ -149,6 +150,18 @@ guidebot simulate
 guidebot evolve --dry-run
 ```
 
+## 技术栈
+
+- Runtime：Python 3.10+、`asyncio`、`dataclass`、类型化 Protocol/ABC、`argparse`；
+- Agent：有界 ReAct-style Planner/Tool/Observation 循环、严格 JSON 输出、JSON Schema Tool 校验、
+  Planner/Critic 双智能体；
+- 状态与可观测性：EventBus、优先级调度、SafetyGate、结构化 trajectory、JSON/JSONL 日志；
+- Memory：`deque` WorkingMemory、append-only EpisodicMemory、可 supersede 的 LongTermMemory、
+  关键词/新近度/重要度检索；
+- 模型与硬件适配：可选 Qwen Omni/DashScope 实时语音，外部 VLM、YOLOv8、ALSA、树莓派小车与
+  超声波适配器；
+- 工程质量：pytest、ruff；核心 Runtime 不依赖向量数据库、消息队列或机器人仿真平台。
+
 ## Tool Registry
 
 统一 Tool 接口包含：
@@ -185,16 +198,29 @@ Critic 在执行前检查 Tool 是否存在、参数是否符合 schema、是否
 ## Memory 与上下文压缩
 
 - `WorkingMemory`：`deque(maxlen=6)` 保存当前任务最近步骤；
-- `EpisodicMemory`：append-only JSONL 保存完整任务轨迹；
+- `EpisodicMemory`：AgentLoop 默认实例化内存存储，也可配置 append-only JSONL 持久化完整任务轨迹；
 - `LongTermMemory`：保存稳定信息，支持 update、supersede 和 active filtering；
-- `ContextManager`：保留最近 6 步细节，把更旧步骤压缩成 deterministic digest；
+- `ContextManager`：由 AgentLoop 初始化；每个完成步骤调用 `update()` 写入 WorkingMemory，构造上下文时
+  保留最近 6 步细节并把更旧步骤压缩成 deterministic digest；任务结束后写入 EpisodicMemory；
 - 检索第一版仅使用关键词重合、时间新近度和 importance，不引入向量数据库。
+
+## Trajectory outcome 语义
+
+每条事件轨迹都记录 `outcome_type`、`success`、`reason`、reward 和 latency：
+
+- `executed`：任务正常完成，`success=true`；
+- `suppressed`：cooldown、去重或优先级抑制，`success=true`、`reward=0`；
+- `no_action_required`：无需动作，`success=true`；
+- `failed`：工具错误、安全拒绝或目标未解决，`success=false`。
+
+非 JSON CLI 和常驻服务会在每条 trace 结束时输出一行摘要，例如
+`[suppressed] [health.sedentary] [cooldown_or_dedup] [0.08ms]`。
 
 ## 验证与测试
 
 ```bash
 pytest -q
-# 153 passed
+# 157 passed
 ```
 
 核心测试覆盖 Registry、未知 Tool、schema 错误、工具失败回传、`max_steps`、Critic 修订、障碍挡停、
@@ -218,7 +244,7 @@ src/guidebot/
   replay.py                 # 轻量 JSON observation replay
   modules/                  # 原有 voice/scene/health/alarm/mobility wrapper 边界
 data/replays/fire_verify.json
-INTERVIEW_ARCHITECTURE.md
+docs/architecture.md
 ```
 
 ## Self-evolution 的定位
@@ -232,6 +258,6 @@ episode → reflection → candidate skill → held-out validation → optional 
 生产 Runtime 只加载批准过的 Skill。当前不会自动修改生产策略，不做 PPO/GRPO、RL、world model、
 自动生产自修改，也不引入 ROS2、Gazebo、Isaac Sim、Kubernetes、Redis、Milvus、Neo4j 或 Kafka。
 
-面试讲解见 [INTERVIEW_ARCHITECTURE.md](INTERVIEW_ARCHITECTURE.md)。树莓派语音与已有硬件接入细节见
+详细架构设计见 [docs/architecture.md](docs/architecture.md)。树莓派语音与已有硬件接入细节见
 [docs/realtime-voice-deployment.md](docs/realtime-voice-deployment.md) 和
 [docs/car-compatibility.md](docs/car-compatibility.md)。

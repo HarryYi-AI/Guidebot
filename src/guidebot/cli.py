@@ -368,10 +368,11 @@ def _print_trace(trace: RuntimeTrace, *, as_json: bool) -> None:
     if as_json:
         _print_json(trace)
         return
+    print(trace.human_summary())
     if trace.action is not None:
         print(trace.action.get("message", trace.action))
     else:
-        print(f"intent={trace.intent.intent_type.value}; no task scheduled")
+        print(f"intent={trace.intent.intent_type.value}; reason={trace.reason}")
 
 
 def _runtime() -> GuidebotRuntime:
@@ -600,7 +601,7 @@ def run_planner_demo(args: argparse.Namespace) -> None:
 
 
 def run_agent_demo(args: argparse.Namespace) -> None:
-    """Run deterministic, hardware-free end-to-end interview scenarios."""
+    """Run deterministic, hardware-free end-to-end scenarios."""
     runtime = GuidebotRuntime()
     if args.scenario == "fire-confirmation":
         session_id = "demo-fire"
@@ -676,8 +677,7 @@ def run_agent_demo(args: argparse.Namespace) -> None:
         _print_json(payload)
     else:
         for trace in traces:
-            selected = trace.trajectory.selected_skill if trace.trajectory else None
-            print(f"{selected or 'no_skill'} -> {trace.final_status}")
+            print(trace.human_summary())
 
 
 def run_interview_demo(args: argparse.Namespace) -> None:
