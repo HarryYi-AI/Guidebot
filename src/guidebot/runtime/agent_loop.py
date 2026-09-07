@@ -5,7 +5,7 @@ from __future__ import annotations
 from time import perf_counter
 from uuid import uuid4
 
-from ..memory import Episode, EpisodicMemory
+from ..memory import Episode, EpisodicMemory, MemoryService
 from ..planning import AgentMessage, CriticAgent, DecisionType, Planner, PlannerDecision
 from ..safety import SafetyGate, SafetyResult
 from ..tools import ToolRegistry, ToolResult, UnknownToolError
@@ -22,6 +22,7 @@ class AgentLoop:
         critic: CriticAgent | None = None,
         safety_gate: SafetyGate | None = None,
         context_manager: ContextManager | None = None,
+        memory_service: MemoryService | None = None,
         episodic_memory: EpisodicMemory | None = None,
         max_steps: int = 12,
         max_revisions: int = 2,
@@ -32,7 +33,10 @@ class AgentLoop:
         self.registry = registry
         self.safety_gate = safety_gate or SafetyGate()
         self.critic = critic or CriticAgent(self.safety_gate)
-        self.context_manager = context_manager or ContextManager()
+        if context_manager is not None and memory_service is not None:
+            raise ValueError("provide context_manager or memory_service, not both")
+        self.context_manager = context_manager or ContextManager(memory_service=memory_service)
+        self.memory_service = self.context_manager.memory_service
         self.episodic_memory = episodic_memory or EpisodicMemory()
         self.max_steps = max_steps
         self.max_revisions = max_revisions
@@ -44,6 +48,7 @@ class AgentLoop:
         *,
         initial_observation: Observation | None = None,
         required_tools: tuple[str, ...] = (),
+        user_id: str = "default",
     ) -> AgentRunResult:
         self.context_manager.reset()
         trace_id = uuid4().hex
@@ -58,6 +63,7 @@ class AgentLoop:
                 trajectory=trajectory,
                 registry=self.registry,
                 required_tools=required_tools,
+                user_id=user_id,
             )
             reviewed = None
             decision = None
@@ -72,6 +78,7 @@ class AgentLoop:
                         f"planner error: {type(exc).__name__}: {exc}",
                         messages,
                         trace_id,
+                        user_id,
                     )
                 reviewed = self.critic.review(
                     decision,
@@ -93,6 +100,7 @@ class AgentLoop:
                         trajectory=trajectory,
                         registry=self.registry,
                         required_tools=required_tools,
+                        user_id=user_id,
                     )
             assert decision is not None and reviewed is not None
             if not reviewed.approved:
@@ -103,6 +111,7 @@ class AgentLoop:
                     "; ".join(reviewed.feedback),
                     messages,
                     trace_id,
+                    user_id,
                 )
 
             started = perf_counter()
@@ -126,6 +135,7 @@ class AgentLoop:
                     decision.final_answer,
                     messages,
                     trace_id,
+                    user_id,
                 )
 
             safety, tool_result = await self._execute(decision)
@@ -157,6 +167,7 @@ class AgentLoop:
             "maximum steps reached",
             messages,
             trace_id,
+            user_id,
         )
 
     async def _execute(self, decision: PlannerDecision) -> tuple[SafetyResult, ToolResult]:
@@ -182,6 +193,7 @@ class AgentLoop:
         answer: str | None,
         messages: list[AgentMessage],
         trace_id: str,
+        user_id: str,
     ) -> AgentRunResult:
         result = AgentRunResult(goal, status, tuple(trajectory), answer, tuple(messages), trace_id)
         self.episodic_memory.append(
@@ -193,4 +205,5 @@ class AgentLoop:
                 episode_id=result.trace_id,
             )
         )
+        self.context_manager.record_run(user_id, result)
         return result

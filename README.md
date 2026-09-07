@@ -2,7 +2,7 @@
 # Guidebot — Multimodal Agent Runtime for Physical Environments
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-157%20passed-2EA44F)](#验证与测试)
+[![Tests](https://img.shields.io/badge/tests-167%20passed-2EA44F)](#验证与测试)
 
 Guidebot 起源于树莓派视觉小车原型，已经分别验证语音交互、视觉场景理解、人体状态检测、闹钟移动
 和超声波挡停。当前仓库的重点不是增加机器人功能，而是把这些能力封装成可规划、可审计、可重放的
@@ -13,15 +13,14 @@ Guidebot 起源于树莓派视觉小车原型，已经分别验证语音交互�
 
 ## 30 秒看懂项目
 
-
-| 系统能力         | Guidebot 中的落地                                                  |
-| ------------------ | -------------------------------------------------------------------- |
-| Agent Framework  | 有界 ReAct-style`AgentLoop`，ToolResult 自动回到下一轮 Observation |
-| Tool Calling     | 统一异步 Tool、JSON Schema、白名单 Registry、结构化错误            |
-| Safe Embodied AI | LLM 只做 high-level planning，物理动作由独立 SafetyGate 决定权限   |
-| Memory / Context | Working、Episodic、Long-term Memory；最近 6 步 + 旧轨迹摘要        |
-| Multi-Agent      | 只保留 Planner/Critic，最多修订 2 次，避免无限讨论                 |
-| Evaluation       | Mock Tool 与事件 Replay，无摄像头、模型 API 或真实小车也能复现     |
+| 系统能力 | Guidebot 中的落地 |
+|---|---|
+| Agent Framework | 有界 ReAct-style `AgentLoop`，ToolResult 自动回到下一轮 Observation |
+| Tool Calling | 统一异步 Tool、JSON Schema、白名单 Registry、结构化错误 |
+| Safe Embodied AI | LLM 只做 high-level planning，物理动作由独立 SafetyGate 决定权限 |
+| Memory / Context | Working、Episodic、Hierarchical Temporal Memory 与最小上下文重建 |
+| Multi-Agent | 只保留 Planner/Critic，最多修订 2 次，避免无限讨论 |
+| Evaluation | Mock Tool 与事件 Replay，无摄像头、模型 API 或真实小车也能复现 |
 
 ## 验证范围
 
@@ -43,9 +42,8 @@ Hardware validated（已有脚本在真实小车上分别验证）：
 - 最近 6 步上下文与确定性旧轨迹摘要；
 - break-reminder 多步任务与 fire-verify 主动感知 Replay。
 
-上述硬件能力曾分别在树莓派小车上验证；
-
-统一的多步Agent Runtime 目前通过 Mock Tool 和历史事件重放验证，真实能力通过 wrapper 边界接入。
+**已在真实小车上全量部署：❌ 尚未达成。** 上述硬件能力曾分别在树莓派小车上验证；统一的多步
+Agent Runtime 目前通过 Mock Tool 和历史事件重放验证，真实能力通过 wrapper 边界接入。
 
 ## 主架构
 
@@ -159,8 +157,8 @@ guidebot evolve --dry-run
 - Agent：有界 ReAct-style Planner/Tool/Observation 循环、严格 JSON 输出、JSON Schema Tool 校验、
   Planner/Critic 双智能体；
 - 状态与可观测性：EventBus、优先级调度、SafetyGate、结构化 trajectory、JSON/JSONL 日志；
-- Memory：`deque` WorkingMemory、append-only EpisodicMemory、可 supersede 的 LongTermMemory、
-  关键词/新近度/重要度检索；
+- Memory：`deque` WorkingMemory、append-only EpisodicMemory、SQLite Hierarchical Temporal Memory、
+  query planning、TTL、历史版本、关键词/新近度/重要度检索；
 - 模型与硬件适配：可选 Qwen Omni/DashScope 实时语音，外部 VLM、YOLOv8、ALSA、树莓派小车与
   超声波适配器；
 - 工程质量：pytest、ruff；核心 Runtime 不依赖向量数据库、消息队列或机器人仿真平台。
@@ -207,6 +205,15 @@ Critic 在执行前检查 Tool 是否存在、参数是否符合 schema、是否
   保留最近 6 步细节并把更旧步骤压缩成 deterministic digest；任务结束后写入 EpisodicMemory；
 - 检索第一版仅使用关键词重合、时间新近度和 importance，不引入向量数据库。
 
+长期记忆另提供 SQLite-backed Hierarchical Temporal Memory：Episode、Atomic Fact、Temporary State、
+Preference、Boundary、Relationship State 与 Skill Evidence 分开存储。`MemoryService` 已接入 AgentLoop，
+负责 query planning、结构化 context reconstruction、TTL、历史版本和批量 consolidation；业务层不直接
+访问 SQLite。详见 [docs/memory.md](docs/memory.md)。
+
+```bash
+python -m guidebot.memory.demo
+```
+
 ## Trajectory outcome 语义
 
 每条事件轨迹都记录 `outcome_type`、`success`、`reason`、reward 和 latency：
@@ -223,11 +230,12 @@ Critic 在执行前检查 Tool 是否存在、参数是否符合 schema、是否
 
 ```bash
 pytest -q
-# 157 passed
+# 167 passed
 ```
 
 核心测试覆盖 Registry、未知 Tool、schema 错误、工具失败回传、`max_steps`、Critic 修订、障碍挡停、
-三层 Memory、上下文压缩、break-reminder 和 fire Replay。测试不访问摄像头、Omni/VLM API 或小车。
+TTL、时间冲突、Boundary 权限、偏好 consolidation、上下文重建、break-reminder 和 fire Replay。测试不访问
+摄像头、Omni/VLM API 或小车。
 
 ## 目录
 
@@ -243,7 +251,7 @@ src/guidebot/
     planner.py              # strict JSON PlannerAgent / MockPlanner
     critic.py               # CriticAgent / AgentMessage
     options.py              # 原有 high-level Options 编译器
-  memory/                   # Working / Episodic / Long-term / retrieval
+  memory/                   # Working / Episodic / temporal SQLite / retrieval / consolidation
   replay.py                 # 轻量 JSON observation replay
   modules/                  # 原有 voice/scene/health/alarm/mobility wrapper 边界
 data/replays/fire_verify.json
@@ -258,8 +266,9 @@ docs/architecture.md
 episode → reflection → candidate skill → held-out validation → optional approval
 ```
 
-生产 Runtime 只加载批准过的 Skill。未来会引入自动修改生产策略，PPO/GRPO、RL、
-自动生产自修改，当小车技术成熟后引入Milvus、Neo4j 或 Kafka。
+生产 Runtime 只加载批准过的 Skill。当前不会自动修改生产策略；Memory consolidation 生成的
+SkillCandidate 也保持 `accepted=false`，必须经过 verifier/eval gate。当前不依赖 PPO/GRPO、Milvus、
+Neo4j 或 Kafka。
 
 详细架构设计见 [docs/architecture.md](docs/architecture.md)。树莓派语音与已有硬件接入细节见
 [docs/realtime-voice-deployment.md](docs/realtime-voice-deployment.md) 和

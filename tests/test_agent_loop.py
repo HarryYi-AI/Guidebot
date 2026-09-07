@@ -1,5 +1,6 @@
 import pytest
 
+from guidebot.memory import EpisodeMemory
 from guidebot.planning import DecisionType, MockPlanner, PlannerDecision
 from guidebot.runtime import AgentLoop, RunStatus
 from guidebot.runtime.demos import run_break_reminder_demo
@@ -37,6 +38,8 @@ async def test_agent_loop_wires_context_and_episodic_memory_by_default() -> None
     assert loop.working_memory is loop.context_manager.working_memory
     assert len(loop.working_memory) == 1
     assert loop.episodic_memory.read_all()[0]["episode_id"] == result.trace_id
+    assert planner.contexts[0].memory_context is not None
+    assert len(loop.memory_service.store.list(EpisodeMemory, "default")) == 1
 
 
 @pytest.mark.asyncio

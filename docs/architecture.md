@@ -57,6 +57,11 @@ token-by-token 生成 PWM、轮速或 PID 参数。
 - ContextManager：旧步骤生成 deterministic digest，最近 6 步保留详细结构；
 - Retrieval：关键词重合 + recency + importance，无向量数据库。
 
+长期层由 `MemoryService` 统一管理 SQLite structured store，将 Episode、Fact、Temporary State、
+Preference、Boundary、Relationship State 和 Skill Evidence 分离。Query Planner 先决定需要的记忆类型，
+再重建类型化 `MemoryContext`；consolidation 只生成稳定 Preference 和未接受的 SkillCandidate。详细设计见
+[memory.md](memory.md)。
+
 ## Two compatible entry points
 
 - `guidebot.runtime.AgentLoop`：多步 Planner/Tool/Observation 验证主线；
