@@ -3,6 +3,18 @@
 from .episodic import Episode, EpisodicMemory
 from .consolidator import ConsolidationReport, MemoryConsolidator
 from .context_builder import MemoryContextBuilder
+from .context_budget import (
+    ACTIVE_TASK_PATH,
+    CORE_MEMORY,
+    CURRENT_STATE,
+    RECENT_OBSERVATIONS,
+    RETRIEVED_HISTORY,
+    SAFETY,
+    ApproximateTokenCounter,
+    BudgetUsage,
+    ContextBudgetAllocator,
+    TokenCounter,
+)
 from .extractor import (
     BaseMemoryExtractor,
     LLMMemoryExtractor,
@@ -31,6 +43,7 @@ from .schemas import (
 )
 from .stream import Experience, MemoryStream, RetrievedMemory
 from .store import StructuredMemoryStore
+from .task_state import TaskNode, TaskNodeStatus, TaskStateTree
 from .temporal_resolver import Resolution, TemporalResolver
 from .working import WorkingMemory
 
@@ -39,8 +52,14 @@ __all__ = [
     "EpisodeMemory",
     "EpisodicMemory",
     "BaseMemoryExtractor",
+    "ACTIVE_TASK_PATH",
+    "ApproximateTokenCounter",
     "BoundaryMemory",
+    "BudgetUsage",
     "ConsolidationReport",
+    "CORE_MEMORY",
+    "CURRENT_STATE",
+    "ContextBudgetAllocator",
     "EmbeddingBackend",
     "Experience",
     "FactMemory",
@@ -60,6 +79,8 @@ __all__ = [
     "MockEmbeddingBackend",
     "MockLLMMemoryExtractor",
     "PreferenceMemory",
+    "RECENT_OBSERVATIONS",
+    "RETRIEVED_HISTORY",
     "RelationshipMemory",
     "Resolution",
     "ResolutionAction",
@@ -71,7 +92,12 @@ __all__ = [
     "SkillEvidenceMemory",
     "StructuredMemoryRetriever",
     "StructuredMemoryStore",
+    "SAFETY",
+    "TaskNode",
+    "TaskNodeStatus",
+    "TaskStateTree",
     "TemporaryStateMemory",
     "TemporalResolver",
+    "TokenCounter",
     "WorkingMemory",
 ]

@@ -99,11 +99,16 @@ class MockPlanner:
 
 
 def _context_payload(context: Any) -> dict[str, Any]:
-    return to_jsonable({
-        "goal": context.goal,
-        "latest_observation": context.latest_observation,
-        "reasoning_digest": context.reasoning_digest,
-        "recent_steps": context.recent_steps,
-        "retrieved_memories": context.retrieved_memories,
-        "available_tools": context.available_tools,
-    })
+    payload = getattr(context, "planner_payload", None)
+    if callable(payload):
+        return payload()
+    return to_jsonable(
+        {
+            "goal": context.goal,
+            "latest_observation": context.latest_observation,
+            "memory": context.budgeted_context,
+            "available_tools": context.available_tools,
+            "required_tools": context.required_tools,
+            "completed_tools": context.completed_tools,
+        }
+    )

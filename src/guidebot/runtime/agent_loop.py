@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from time import perf_counter
 from uuid import uuid4
 
@@ -50,7 +51,7 @@ class AgentLoop:
         required_tools: tuple[str, ...] = (),
         user_id: str = "default",
     ) -> AgentRunResult:
-        self.context_manager.reset()
+        self.context_manager.reset(goal)
         trace_id = uuid4().hex
         trajectory: list[AgentLoopStep] = []
         messages: list[AgentMessage] = []
@@ -125,6 +126,7 @@ class AgentLoop:
                     None,
                     final_observation,
                     (perf_counter() - started) * 1_000,
+                    context.planner_payload(),
                 )
                 trajectory.append(step)
                 self.context_manager.update(step)
@@ -156,6 +158,7 @@ class AgentLoop:
                 tool_result,
                 observation,
                 (perf_counter() - started) * 1_000,
+                context.planner_payload(),
             )
             trajectory.append(step)
             self.context_manager.update(step)
@@ -196,10 +199,11 @@ class AgentLoop:
         user_id: str,
     ) -> AgentRunResult:
         result = AgentRunResult(goal, status, tuple(trajectory), answer, tuple(messages), trace_id)
+        compact_trajectory = tuple(replace(step, context=None) for step in result.trajectory)
         self.episodic_memory.append(
             Episode(
                 task=goal,
-                trajectory=result.trajectory,
+                trajectory=compact_trajectory,
                 outcome=status.value,
                 success=status is RunStatus.FINISHED,
                 episode_id=result.trace_id,

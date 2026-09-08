@@ -10,7 +10,7 @@ Guidebot 的现有 Omni、VLM、YOLO、闹钟、小车运动和超声波代码�
 ```text
 Goal + multimodal Observation
           ↓
-ContextManager ← Working / Episodic / LongTerm Memory
+ContextManager ← User Memory / TaskStateTree / Token Budget
           ↓
 PlannerAgent ── strict JSON ──► CriticAgent
           ▲                         │ approve/revise ≤ 2

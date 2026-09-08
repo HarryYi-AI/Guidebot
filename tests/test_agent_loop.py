@@ -40,6 +40,8 @@ async def test_agent_loop_wires_context_and_episodic_memory_by_default() -> None
     assert loop.episodic_memory.read_all()[0]["episode_id"] == result.trace_id
     assert planner.contexts[0].memory_context is not None
     assert len(loop.memory_service.store.list(EpisodeMemory, "default")) == 1
+    assert result.trajectory[0].context is not None
+    assert "recent_steps" not in result.trajectory[0].context
 
 
 @pytest.mark.asyncio
@@ -143,3 +145,7 @@ async def test_tool_error_returns_as_next_planner_observation() -> None:
 
     assert result.status is RunStatus.FINISHED
     assert planner.contexts[1].latest_observation.data["error"] == "camera unavailable"
+    assert planner.contexts[1].task_state_context is not None
+    assert planner.contexts[1].task_state_context["failed_branches"] == [
+        "failing: camera unavailable"
+    ]

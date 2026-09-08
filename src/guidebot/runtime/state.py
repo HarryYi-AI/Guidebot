@@ -36,6 +36,7 @@ class AgentLoopStep:
     tool_result: ToolResult | None
     observation: Observation
     latency_ms: float
+    context: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)

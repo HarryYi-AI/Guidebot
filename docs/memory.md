@@ -70,6 +70,30 @@ score = 0.6 * semantic_relevance + 0.2 * recency + 0.2 * importance
 
 SkillCandidate 始终 `accepted=false`，必须经过现有 verifier/eval gate 才能进入正式 Skill Library。
 
+## Execution Memory
+
+`TaskStateTree` 与 User Memory 相互独立，用来追踪多步任务的 `ACTIVE / DONE / FAILED / ABANDONED`
+分支。Planner 只接收：
+
+- root 到当前 active node 的路径；
+- 当前节点最近 observations；
+- 已失败或放弃分支的简短摘要。
+
+完整 trajectory 仍用于持久化与离线审计，但不会原样放回下一轮 prompt。TaskStateTree 支持 JSON 文件
+保存和恢复。
+
+## Context Token Budget
+
+`ContextBudgetAllocator` 默认分配：Core Memory 15%、Current State 20%、Active Task Path 30%、Recent
+Observations 20%、Retrieved History 10%、Safety 5%。每部分有独立 cap，不能借用 Safety 预留区。默认
+使用适合离线环境的近似计数器，也可通过 `TokenCounter` Protocol 注入 tiktoken adapter。
+
+## Offline Memory Ablation
+
+`MemoryAblationEvaluator` 对记录的 Agent context 做 leave-one-memory-out Replay，比较 action、safety score
+和 verifier 状态，输出 harmful/stale 标记。它依赖注入的 Mock/Replay runner，不访问真实 LLM，也不被
+AgentLoop 导入。
+
 ## API
 
 ```python

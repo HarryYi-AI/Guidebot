@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from guidebot.planning import CriticAgent, PlannerAgent, PlannerDecision
@@ -7,10 +9,16 @@ from guidebot.tools import SpeakTool, ToolRegistry
 
 @pytest.mark.asyncio
 async def test_planner_agent_accepts_strict_json() -> None:
-    planner = PlannerAgent(
-        lambda _: '{"type":"tool_call","reason":"reply","tool_name":"speak",'
-        '"arguments":{"text":"hi"},"final_answer":null}'
-    )
+    prompts = []
+
+    def backend(prompt):
+        prompts.append(prompt)
+        return (
+            '{"type":"tool_call","reason":"reply","tool_name":"speak",'
+            '"arguments":{"text":"hi"},"final_answer":null}'
+        )
+
+    planner = PlannerAgent(backend)
     registry = ToolRegistry()
     registry.register(SpeakTool())
     context = ContextManager().build(
@@ -23,6 +31,10 @@ async def test_planner_agent_accepts_strict_json() -> None:
     decision = await planner.decide(context)
 
     assert decision.tool_name == "speak"
+    payload = json.loads(prompts[0])
+    assert "memory" in payload
+    assert "recent_steps" not in payload
+    assert "active_task_path" in payload["memory"]
 
 
 def test_planner_output_rejects_markdown_instead_of_guessing_json() -> None:

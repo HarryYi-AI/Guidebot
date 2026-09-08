@@ -2,7 +2,7 @@
 # Guidebot — Multimodal Agent Runtime for Physical Environments
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/tests-167%20passed-2EA44F)](#验证与测试)
+[![Tests](https://img.shields.io/badge/tests-174%20passed-2EA44F)](#验证与测试)
 
 Guidebot 起源于树莓派视觉小车原型，已经分别验证语音交互、视觉场景理解、人体状态检测、闹钟移动
 和超声波挡停。当前仓库的重点不是增加机器人功能，而是把这些能力封装成可规划、可审计、可重放的
@@ -51,8 +51,8 @@ Agent Runtime 目前通过 Mock Tool 和历史事件重放验证，真实能力�
 flowchart LR
     A[Camera / Audio / Sensors / Timer] --> B[Observation / EventBus]
     B --> C[Perception + Belief]
-    C --> D[ContextManager]
-    M[(Working / Episodic / Long-term Memory)] <--> D
+    C --> D[ContextManager + Token Budget]
+    M[(User Memory + TaskStateTree)] <--> D
     D --> P[PlannerAgent]
     P -->|strict JSON| K[CriticAgent]
     K -->|revise, at most 2| P
@@ -157,7 +157,7 @@ guidebot evolve --dry-run
 - Agent：有界 ReAct-style Planner/Tool/Observation 循环、严格 JSON 输出、JSON Schema Tool 校验、
   Planner/Critic 双智能体；
 - 状态与可观测性：EventBus、优先级调度、SafetyGate、结构化 trajectory、JSON/JSONL 日志；
-- Memory：`deque` WorkingMemory、append-only EpisodicMemory、SQLite Hierarchical Temporal Memory、
+- Memory：`deque` WorkingMemory、SQLite Hierarchical Temporal Memory、TaskStateTree、固定 token budget、
   query planning、TTL、历史版本、关键词/新近度/重要度检索；
 - 模型与硬件适配：可选 Qwen Omni/DashScope 实时语音，外部 VLM、YOLOv8、ALSA、树莓派小车与
   超声波适配器；
@@ -214,6 +214,14 @@ Preference、Boundary、Relationship State 与 Skill Evidence 分开存储。`Me
 python -m guidebot.memory.demo
 ```
 
+执行状态由 `TaskStateTree` 单独维护：只把 root → active branch、当前最近 observations 和失败分支摘要
+送入 Planner，不回灌完整 trajectory。`ContextBudgetAllocator` 使用固定预算切分 Core Memory 15%、
+Current State 20%、Active Task Path 30%、Recent Observations 20%、Retrieved History 10%，并保留 5%
+Safety 区域；核心默认使用离线近似 token 计数，也可注入其他 TokenCounter。
+
+Memory ablation 位于 `guidebot.evaluation.memory_ablation`，只在 Replay/Mock 中逐条剔除记忆并比较 action、
+safety score 和 verifier 结果，用于发现 harmful/stale memory，不进入在线推理链路。
+
 ## Trajectory outcome 语义
 
 每条事件轨迹都记录 `outcome_type`、`success`、`reason`、reward 和 latency：
@@ -230,7 +238,7 @@ python -m guidebot.memory.demo
 
 ```bash
 pytest -q
-# 167 passed
+# 174 passed
 ```
 
 核心测试覆盖 Registry、未知 Tool、schema 错误、工具失败回传、`max_steps`、Critic 修订、障碍挡停、
@@ -251,7 +259,8 @@ src/guidebot/
     planner.py              # strict JSON PlannerAgent / MockPlanner
     critic.py               # CriticAgent / AgentMessage
     options.py              # 原有 high-level Options 编译器
-  memory/                   # Working / Episodic / temporal SQLite / retrieval / consolidation
+  memory/                   # User Memory / TaskStateTree / token budget / retrieval / consolidation
+  evaluation/               # offline memory ablation（不接入在线推理）
   replay.py                 # 轻量 JSON observation replay
   modules/                  # 原有 voice/scene/health/alarm/mobility wrapper 边界
 data/replays/fire_verify.json
